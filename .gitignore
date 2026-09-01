@@ -1,0 +1,10 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+# 本地私有内容：真实 ID、真实数据、交接记录
+/private/
+*.local.gs
+*.local.tsv
