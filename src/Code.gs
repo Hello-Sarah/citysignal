@@ -26,6 +26,13 @@ const CONFIG = {
   ],
   // 邮件发件人显示名称
   SENDER_NAME: '湾区周报',
+  // 公开网页地址（必须写死）。
+  // 曾经用 ScriptApp.getService().getUrl() 动态取，但从编辑器手动运行时
+  // 它返回的是 /dev 开发版地址，收件人点开会被 Google 拦在权限页外。
+  SITE_URL: 'https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID/exec',
+  // previewWeeklyEmail() 额外发到的地址 —— 都是作者本人的邮箱。
+  // 正式收件人在 RECIPIENT_EMAILS 里，预览不会发给他们。
+  PREVIEW_ALSO: ['you@example.com', 'recipient-2@example.com'],
   // 网页标题
   SITE_TITLE: '三藩市 & 湾区周报'
 };
@@ -248,37 +255,134 @@ const PAGE_CSS_ = `
 // 发送每周邮件
 // ============================================================
 function sendWeeklyEmail() {
+  sendIssueTo_(CONFIG.RECIPIENT_EMAILS.join(','));
+}
+
+// 预览：只发到作者本人的邮箱（脚本所有者 + CONFIG.PREVIEW_ALSO）。
+// 不会发给 CONFIG.RECIPIENT_EMAILS 里的读者。
+// 用途：正式发出前先自己看一眼排版，不用拿读者当测试。
+function previewWeeklyEmail() {
+  // 这里刻意不用 Session.getActiveUser().getEmail()：那需要额外的 OAuth
+  // 范围（读取账号邮箱），为一个预览功能扩大脚本权限不划算。写死即可。
+  const list = (CONFIG.PREVIEW_ALSO || []).filter(Boolean);
+  if (!list.length) throw new Error('CONFIG.PREVIEW_ALSO 是空的，没有预览地址');
+  sendIssueTo_(list.join(','));
+  Logger.log('预览邮件已发送至 ' + list.join(', ') + '（未发给正式收件人）');
+}
+
+function sendIssueTo_(toAddress) {
   const data = readAllEvents_();
   const weekIds = getSortedWeekIds_(data);
   const latestWeek = weekIds[0];
   const weekData = data.filter(d => d.WeekId === latestWeek);
-  const baseUrl = ScriptApp.getService().getUrl();
-  const link = `${baseUrl}?week=${latestWeek}`;
+  const link = CONFIG.SITE_URL + '?week=' + latestWeek;
+  const label = formatWeekLabel_(latestWeek);
 
   // 优先列出 Pick 标记的条目；不足5条再用其余的补齐
   const picked = weekData.filter(d => String(d.Pick || '').trim() !== '');
   const rest = weekData.filter(d => String(d.Pick || '').trim() === '');
-  const highlights = picked.concat(rest).slice(0, 5).map(d =>
-    `• ${d.Title}（${d.DateInfo}）`
-  ).join('\n');
+  const top = picked.concat(rest).slice(0, 5);
 
-  const subject = `这周的湾区，我给你留了几张票 🎫 ${formatWeekLabel_(latestWeek)}`;
-  const plainBody = `嘿，\n\n这周整理了几个活动：\n\n${highlights}\n\n完整清单在这里：${link}\n\n想我了。`;
+  // 注意：主题和正文里都不要放 emoji。
+  // 曾经在主题里放过一个票券 emoji，收件人那边是一串问号方块 —— 非 BMP
+  // 字符没扛过邮件头编码。中文是 BMP 内的三字节字符，没有这个问题。
+  const subject = '这周的湾区，我给你留了几张票 · ' + label;
+
+  const plainBody = [
+    '嘿，',
+    '',
+    '这周整理了 ' + weekData.length + ' 个活动，先挑几个给你：',
+    '',
+    top.map(d => '- ' + d.Title + '（' + d.DateInfo + '｜' + d.Location + '）').join('\n'),
+    '',
+    '完整清单：' + link,
+    '',
+    '（你的落款）'
+  ].join('\n');
+
+  const rows = top.map(d => renderMailItem_(d)).join('');
 
   const htmlBody = `
-    <div style="font-family:sans-serif;max-width:500px;">
-      <h2>这周的湾区，我给你留了几张票 🎫</h2>
-      <p>${highlights.replace(/\n/g, '<br>')}</p>
-      <p><a href="${link}" style="background:#a94e29;color:#fff;padding:10px 20px;
-        border-radius:20px;text-decoration:none;">查看完整周报 →</a></p>
-      <p style="color:#888;">想我了。</p>
-    </div>`;
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#c9d2d4;padding:28px 12px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#f2ecdc;border-radius:4px;">
 
-  GmailApp.sendEmail(CONFIG.RECIPIENT_EMAILS.join(','), subject, plainBody, {
+  <tr><td style="padding:30px 30px 0 30px;">
+    <div style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.18em;color:#8a8578;">
+      SF &amp; BAY AREA WEEKLY
+    </div>
+    <div style="font-family:Georgia,'Times New Roman',serif;font-size:32px;color:#1e2830;padding-top:6px;">
+      ${esc_(label)}
+    </div>
+    <div style="font-family:Georgia,serif;font-size:15px;color:#5a5449;padding-top:14px;line-height:1.6;">
+      这周整理了 ${weekData.length} 个活动，先挑几个给你 —
+    </div>
+  </td></tr>
+
+  <tr><td style="padding:20px 30px 0 30px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>
+  </td></tr>
+
+  <tr><td align="center" style="padding:26px 30px 8px 30px;">
+    <a href="${esc_(link)}" style="display:inline-block;background:#a94e29;color:#ffffff;
+      font-family:Georgia,serif;font-size:15px;padding:12px 30px;border-radius:24px;
+      text-decoration:none;">查看完整 ${esc_(String(weekData.length))} 条 &rarr;</a>
+  </td></tr>
+
+  <tr><td style="padding:18px 30px 30px 30px;">
+    <div style="border-top:1px dashed #c4baa4;padding-top:16px;
+      font-family:Georgia,serif;font-size:14px;color:#8a8578;">（你的落款）</div>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>`;
+
+  GmailApp.sendEmail(toAddress, subject, plainBody, {
     htmlBody: htmlBody,
     name: CONFIG.SENDER_NAME
   });
 }
+
+// 邮件里的单条活动，做成和网页一致的「车票存根」样式。
+// 邮件客户端对 flex/grid 支持很差，这里一律用 table + 内联样式。
+function renderMailItem_(d) {
+  const isPick = String(d.Pick || '').trim() !== '';
+  const accent = isPick ? '#b8860b' : '#c4baa4';
+  const status = String(d.Status || '').trim();
+  const statusColor = status === '已核实' ? '#4a7c59'
+    : status === '场地已核实' ? '#7a8f6b'
+    : '#b5503c';
+
+  return `
+<tr><td style="padding-bottom:10px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0"
+    style="background:#faf6ea;border-left:3px solid ${accent};">
+    <tr>
+      <td width="86" valign="top" style="padding:12px 10px;border-right:1px dashed ${accent};">
+        <div style="font-family:'Courier New',monospace;font-size:10px;color:#ffffff;
+          background:#1e2830;display:inline-block;padding:2px 6px;">${esc_(d.Category)}</div>
+        <div style="font-family:'Courier New',monospace;font-size:11px;color:#5a5449;
+          padding-top:6px;line-height:1.4;">${esc_(d.DateInfo)}</div>
+      </td>
+      <td valign="top" style="padding:12px 14px;">
+        <div style="font-family:Georgia,serif;font-size:16px;color:#1e2830;line-height:1.35;">
+          ${esc_(d.Title)}${isPick ? ' <span style="font-family:\'Courier New\',monospace;font-size:9px;color:#ffffff;background:#b8860b;padding:2px 6px;border-radius:9px;">给你挑的</span>' : ''}
+        </div>
+        <div style="font-family:'Courier New',monospace;font-size:11px;color:#7a7365;padding-top:5px;">
+          ${esc_(d.Location)}
+        </div>
+        <div style="padding-top:7px;">
+          ${d.PriceInfo ? `<span style="font-family:Georgia,serif;font-size:11px;color:#5a5449;">${esc_(d.PriceInfo)}</span>&nbsp;&nbsp;` : ''}
+          <span style="font-family:'Courier New',monospace;font-size:10px;color:${statusColor};
+            border:1px solid ${statusColor};padding:1px 5px;">${esc_(status || '未核实')}</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+</td></tr>`;
+}
+
 
 // ============================================================
 // 一次性设置：每周三上午9点自动发邮件
