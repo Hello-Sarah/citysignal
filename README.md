@@ -83,7 +83,7 @@ The validator enforces 8 rule classes and also reports the **verification rate**
 | Issue | Entries | Verified | Venue-verified | Unverified | Rate |
 |---|---|---|---|---|---|
 | 2026-08-26 | 33 | 17 | 12 | 4 | 52% |
-| 2026-09-02 | 20 | 15 | 5 | 0 | 75% |
+| 2026-09-02 | 31 | 23 | 6 | 2 | 74% |
 
 A lower rate isn't worse — issues with more community content are *structurally* less verifiable.
 What matters is that unverified entries are labelled honestly and source conflicts are recorded.
