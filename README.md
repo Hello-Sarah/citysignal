@@ -40,8 +40,9 @@ The rule is: *keep the content, never fake the confidence.* The reader decides.
 | [`docs/技术文档.md`](docs/技术文档.md) | Architecture, design decisions, deployment, security |
 | [`data/schema.md`](data/schema.md) | The 12-column data contract |
 | [`data/sample_events.tsv`](data/sample_events.tsv) | Sanitized sample issue |
-| [`tests/validate_data.py`](tests/validate_data.py) | Runnable data validator, 8 rule classes |
-| [`tests/fixtures_bad.tsv`](tests/fixtures_bad.tsv) | 7 known-defect regression cases |
+| [`tests/validate_data.py`](tests/validate_data.py) | Runnable data validator, 10 rule classes |
+| [`tests/fixtures_bad.tsv`](tests/fixtures_bad.tsv) | 9 known-defect regression cases |
+| [`tests/render_test.js`](tests/render_test.js) | Node snapshot tests for rendering and mail routing, 21 assertions |
 
 ---
 
@@ -73,8 +74,8 @@ Run the validator:
 
 ```bash
 python3 tests/validate_data.py data/sample_events.tsv    # → exit 0
-python3 tests/validate_data.py tests/fixtures_bad.tsv    # → 8 ERROR, exit 1
-node --check <(cat src/Code.gs)                          # syntax check
+python3 tests/validate_data.py tests/fixtures_bad.tsv    # → 10 ERROR, exit 1
+node tests/render_test.js                                # → 21 passed, exit 0
 ```
 
 The validator enforces 8 rule classes and also reports the **verification rate** per issue

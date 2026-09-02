@@ -19,10 +19,39 @@ const CONFIG = {
   // 把这个换成你的Google Sheet的ID（网址中 /d/ 和 /edit 之间那一串）
   SHEET_ID: 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE',
   SHEET_TAB_NAME: 'Events',
-  // 收件人邮箱（可填多个，都会收到同一封周报）
-  RECIPIENT_EMAILS: [
-    'recipient-1@example.com',
-    'recipient-2@example.com'
+  // ---- 城市配置 ----
+  // 每个城市自成一期：City 列决定条目属于哪个城市，Zone 的合法取值也按城市查表。
+  // 加一个新城市 = 在这里加一项 + 往 Sheet 里写数据，不需要改任何渲染代码。
+  // zones 的顺序就是页面上分区的显示顺序。
+  CITIES: [
+    {
+      slug: 'sf',
+      label: '三藩市湾区',
+      // 每个城市有自己的页面标题：换城市不会改动别的城市读者看到的字
+      siteTitle: '三藩市 & 湾区周报',
+      eyebrow: 'SF & Bay Area Weekly',
+      // 邮件主题里的简称：刻意保持「湾区」，让现有读者收到的主题一字不变
+      mailName: '湾区',
+      zones: ['三藩市市内', '湾区市外', '华人社群活动']
+    },
+    {
+      slug: 'hk',
+      label: '香港',
+      siteTitle: '香港周报',
+      eyebrow: 'Hong Kong Weekly',
+      mailName: '香港',
+      zones: ['港岛', '九龙', '新界']
+    }
+    // 纽约留位：把下面这项取消注释并补好 zones 即可，无需改代码
+    // , { slug: 'ny', label: '纽约', siteTitle: '纽约周报', zones: ['曼哈顿', '布鲁克林 & 皇后', '外围'] }
+  ],
+
+  // ---- 收件人与订阅 ----
+  // 每个人只收自己订阅城市的邮件，一个城市一封，互不混在一起。
+  // cities 里写 CITIES 的 slug。
+  RECIPIENTS: [
+    { email: 'reader-sf@example.com', cities: ['sf'] },
+    { email: 'reader-both@example.com', cities: ['sf', 'hk'] }
   ],
   // 邮件发件人显示名称
   SENDER_NAME: '湾区周报',
@@ -31,25 +60,52 @@ const CONFIG = {
   // 它返回的是 /dev 开发版地址，收件人点开会被 Google 拦在权限页外。
   SITE_URL: 'https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID/exec',
   // previewWeeklyEmail() 额外发到的地址 —— 都是作者本人的邮箱。
-  // 正式收件人在 RECIPIENT_EMAILS 里，预览不会发给他们。
-  PREVIEW_ALSO: ['you@example.com', 'recipient-2@example.com'],
-  // 网页标题
-  SITE_TITLE: '三藩市 & 湾区周报'
+  // 正式收件人在 RECIPIENTS 里，预览不会发给他们。
+  PREVIEW_ALSO: ['you@example.com', 'reader-both@example.com'],
+  // 兜底页面标题：仅在城市配置里没写 siteTitle 时使用
+  SITE_TITLE: '本地活动周报'
 };
+
+// ============================================================
+// 城市
+// ============================================================
+function citiesList_() {
+  return (CONFIG.CITIES && CONFIG.CITIES.length) ? CONFIG.CITIES : [];
+}
+
+function findCityBySlug_(slug) {
+  return citiesList_().filter(c => c.slug === String(slug || '').trim())[0] || null;
+}
+
+function findCityByLabel_(label) {
+  return citiesList_().filter(c => c.label === String(label || '').trim())[0] || null;
+}
+
+// 默认城市 = 配置里的第一个。刻意不按"哪个城市最近更新"来选：
+// 读者每次打开看到的城市应该是稳定的，不该因为另一个城市更新了就跳走。
+function defaultCity_() {
+  return citiesList_()[0] || null;
+}
 
 // ============================================================
 // 入口：网页请求处理
 // ============================================================
 function doGet(e) {
+  const param = (e && e.parameter) ? e.parameter : {};
   const data = readAllEvents_();
-  const weekIds = getSortedWeekIds_(data);
-  const selectedWeek = (e && e.parameter && e.parameter.week && weekIds.includes(e.parameter.week))
-    ? e.parameter.week
-    : weekIds[0]; // 默认显示最新一期
 
-  const html = renderPage_(data, weekIds, selectedWeek);
+  // 城市：?city=hk。非法或缺省一律回落到默认城市，不报错。
+  const city = findCityBySlug_(param.city) || defaultCity_();
+
+  // 期次列表是按城市算的：切城市时下面的往期列表跟着换
+  const weekIds = getSortedWeekIds_(data, city);
+  const selectedWeek = (param.week && weekIds.indexOf(param.week) !== -1)
+    ? param.week
+    : (weekIds[0] || ''); // 该城市还没有任何一期时为空字符串，渲染层出空状态
+
+  const html = renderPage_(data, city, weekIds, selectedWeek);
   return HtmlService.createHtmlOutput(html)
-    .setTitle(CONFIG.SITE_TITLE)
+    .setTitle((city && city.siteTitle) || CONFIG.SITE_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -78,35 +134,54 @@ function readAllEvents_() {
     return obj;
   });
   // 期望的列（表头）：
-  // WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick
+  // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick
+  // City 填 CONFIG.CITIES 里的 label（如「三藩市湾区」「香港」）
   // Pick 列填任意非空值（建议 ★）= 标记为「给你挑的」，会在页面上高亮
 }
 
-function getSortedWeekIds_(data) {
-  const ids = [...new Set(data.map(d => d.WeekId))];
+// 只返回该城市有数据的期次。城市之间的期次互相独立，
+// 三藩市出了新一期不会让香港的页面跳到一个空的日期上。
+function getSortedWeekIds_(data, city) {
+  const rows = city ? data.filter(d => d.City === city.label) : data;
+  const ids = [...new Set(rows.map(d => d.WeekId))].filter(w => w);
   return ids.sort().reverse(); // 最新的在前
 }
 
 // ============================================================
 // 渲染整个网页（含侧边栏历史周报）
 // ============================================================
-function renderPage_(data, weekIds, selectedWeek) {
+function renderPage_(data, city, weekIds, selectedWeek) {
   const baseUrl = ScriptApp.getService().getUrl();
-  const weekData = data.filter(d => d.WeekId === selectedWeek);
+  const citySlug = city ? city.slug : '';
+  const weekData = data.filter(d => d.City === (city ? city.label : '') && d.WeekId === selectedWeek);
+
+  // 城市切换：普通链接，走完整的服务端往返，和期次切换同一套机制。
+  // 页面不生成内容，只呈现已经核实并入库的内容——所以这里是筛选器，不是生成按钮。
+  const cityTabsHtml = citiesList_().map(c => {
+    const active = c.slug === citySlug ? 'active' : '';
+    return `<a class="city-tab ${active}" href="${baseUrl}?city=${encodeURIComponent(c.slug)}">${esc_(c.label)}</a>`;
+  }).join('');
 
   const sidebarHtml = weekIds.map(w => {
     const active = w === selectedWeek ? 'active' : '';
-    return `<a class="week-link ${active}" href="${baseUrl}?week=${w}">${formatWeekLabel_(w)}</a>`;
+    return `<a class="week-link ${active}" href="${baseUrl}?city=${encodeURIComponent(citySlug)}&week=${encodeURIComponent(w)}">${formatWeekLabel_(w)}</a>`;
   }).join('');
 
-  const zones = ['三藩市市内', '湾区市外', '华人社群活动'];
-  const bodyHtml = zones.map(zone => renderZone_(zone, weekData)).join('');
+  const zones = (city && city.zones) ? city.zones : [];
+  const zonesHtml = zones.map(zone => renderZone_(zone, weekData)).join('');
+  // 空状态：新城市在第一期做出来之前，页面必须能正常打开并说明情况，
+  // 而不是白屏或渲染出一个只有标题的空壳。
+  const bodyHtml = zonesHtml || `
+    <div class="empty-state">
+      <div class="empty-title">${esc_((city && city.label) || '')}还没有内容</div>
+      <div class="empty-note">这个城市的第一期还在整理中。每条活动都要先核实过信源才会出现在这里。</div>
+    </div>`;
 
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>${CONFIG.SITE_TITLE}</title>
+<title>${esc_((city && city.siteTitle) || CONFIG.SITE_TITLE)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>${PAGE_CSS_}</style>
@@ -114,13 +189,15 @@ function renderPage_(data, weekIds, selectedWeek) {
 <body>
 <div class="layout">
   <aside class="sidebar">
+    ${citiesList_().length > 1 ? `<div class="sidebar-title">城市</div>
+    <div class="city-tabs">${cityTabsHtml}</div>` : ''}
     <div class="sidebar-title">往期周报</div>
-    ${sidebarHtml}
+    <div class="week-list">${sidebarHtml}</div>
   </aside>
   <main class="main">
     <header>
-      <div class="eyebrow">SF & Bay Area Weekly</div>
-      <h1>${formatWeekLabel_(selectedWeek)}</h1>
+      <div class="eyebrow">${esc_((city && city.eyebrow) || '')}</div>
+      <h1>${selectedWeek ? formatWeekLabel_(selectedWeek) : esc_((city && city.label) || '')}</h1>
     </header>
     ${bodyHtml}
   </main>
@@ -213,6 +290,16 @@ const PAGE_CSS_ = `
     color:var(--ink-soft);text-decoration:none;font-size:13px;font-family:'IBM Plex Mono',monospace;}
   .week-link.active{background:var(--paper);color:var(--ink);font-weight:600;}
   .week-link:hover{background:rgba(255,255,255,0.4);}
+  .city-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:26px;}
+  .city-tab{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.04em;
+    padding:5px 11px;border:1px solid var(--paper-shadow);border-radius:14px;
+    color:var(--fog-dark);text-decoration:none;white-space:nowrap;}
+  .city-tab:hover{background:rgba(255,255,255,0.5);}
+  .city-tab.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .empty-state{background:var(--paper);border:1px dashed var(--paper-shadow);
+    border-radius:4px;padding:40px 32px;text-align:center;}
+  .empty-title{font-family:'Fraunces',Georgia,serif;font-size:20px;color:var(--ink);}
+  .empty-note{font-size:13px;color:var(--fog-dark);margin-top:10px;line-height:1.7;}
   .main{flex:1;padding:40px 24px 80px;}
   .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.15em;
     color:var(--fog-dark);text-transform:uppercase;margin-bottom:10px;}
@@ -247,36 +334,72 @@ const PAGE_CSS_ = `
   .map-link{font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--ink);
     text-decoration:none;border-bottom:1px solid var(--ink);}
   .note{margin-top:8px;font-size:12px;font-style:italic;color:var(--rust);}
-  @media(max-width:700px){.layout{flex-direction:column;}.sidebar{
-    display:flex;overflow-x:auto;gap:6px;padding:20px 16px 0;}.week-link{white-space:nowrap;}}
+  @media(max-width:700px){
+    .layout{flex-direction:column;}
+    .sidebar{padding:20px 16px 0;}
+    .sidebar-title{margin-top:0;}
+    .city-tabs{overflow-x:auto;margin-bottom:16px;}
+    .week-list{display:flex;overflow-x:auto;gap:6px;}
+    .week-link{white-space:nowrap;margin-bottom:0;}}
 `;
 
 // ============================================================
 // 发送每周邮件
 // ============================================================
+// 正式发信：按城市各发一封，每个人只收自己订阅的城市。
+// 一个城市一封而不是把多城市塞进一封，是因为「当期精选前 5 条」这个概念
+// 只有在单一城市下才成立；混城市之后读者要先分辨哪条属于哪里，反而更累。
 function sendWeeklyEmail() {
-  sendIssueTo_(CONFIG.RECIPIENT_EMAILS.join(','));
+  const sent = [];
+  citiesList_().forEach(city => {
+    const subs = (CONFIG.RECIPIENTS || [])
+      .filter(r => r && r.email && (r.cities || []).indexOf(city.slug) !== -1)
+      .map(r => r.email);
+    if (!subs.length) return;                        // 没人订阅这个城市
+    if (!sendIssueTo_(subs.join(','), city)) return; // 该城市还没有任何一期
+    sent.push(city.label + ' -> ' + subs.join(', '));
+  });
+  if (!sent.length) {
+    Logger.log('没有任何邮件被发出：检查 CONFIG.RECIPIENTS 的订阅设置，或该城市是否已有数据');
+  } else {
+    Logger.log('已发送:\n' + sent.join('\n'));
+  }
 }
 
 // 预览：只发到作者本人的邮箱（脚本所有者 + CONFIG.PREVIEW_ALSO）。
-// 不会发给 CONFIG.RECIPIENT_EMAILS 里的读者。
+// 不会发给 CONFIG.RECIPIENTS 里的读者。
 // 用途：正式发出前先自己看一眼排版，不用拿读者当测试。
 function previewWeeklyEmail() {
   // 这里刻意不用 Session.getActiveUser().getEmail()：那需要额外的 OAuth
   // 范围（读取账号邮箱），为一个预览功能扩大脚本权限不划算。写死即可。
   const list = (CONFIG.PREVIEW_ALSO || []).filter(Boolean);
   if (!list.length) throw new Error('CONFIG.PREVIEW_ALSO 是空的，没有预览地址');
-  sendIssueTo_(list.join(','));
-  Logger.log('预览邮件已发送至 ' + list.join(', ') + '（未发给正式收件人）');
+  // 预览把每个有数据的城市各发一封，一次看完所有城市的排版
+  const done = [];
+  citiesList_().forEach(city => {
+    if (sendIssueTo_(list.join(','), city)) done.push(city.label);
+  });
+  if (!done.length) throw new Error('没有任何城市有数据，无可预览内容');
+  Logger.log('预览邮件已发送至 ' + list.join(', ') +
+             '；覆盖城市: ' + done.join('、') + '（未发给正式收件人）');
 }
 
-function sendIssueTo_(toAddress) {
+// 返回 true = 真的发了；false = 该城市还没有任何一期，什么也没发。
+// 刻意不发空邮件：一封「本周没有内容」的邮件对读者是噪音，
+// 而且会让「收到邮件 = 有新内容」这个约定失效。
+function sendIssueTo_(toAddress, city) {
   const data = readAllEvents_();
-  const weekIds = getSortedWeekIds_(data);
+  const weekIds = getSortedWeekIds_(data, city);
   const latestWeek = weekIds[0];
-  const weekData = data.filter(d => d.WeekId === latestWeek);
-  const link = CONFIG.SITE_URL + '?week=' + latestWeek;
+  if (!latestWeek) return false;
+
+  const weekData = data.filter(d => d.City === city.label && d.WeekId === latestWeek);
+  if (!weekData.length) return false;
+
+  const link = CONFIG.SITE_URL + '?city=' + encodeURIComponent(city.slug) +
+               '&week=' + encodeURIComponent(latestWeek);
   const label = formatWeekLabel_(latestWeek);
+  const cityName = city.mailName || city.label;
 
   // 优先列出 Pick 标记的条目；不足5条再用其余的补齐
   const picked = weekData.filter(d => String(d.Pick || '').trim() !== '');
@@ -286,7 +409,7 @@ function sendIssueTo_(toAddress) {
   // 注意：主题和正文里都不要放 emoji。
   // 曾经在主题里放过一个票券 emoji，收件人那边是一串问号方块 —— 非 BMP
   // 字符没扛过邮件头编码。中文是 BMP 内的三字节字符，没有这个问题。
-  const subject = '这周的湾区，我给你留了几张票 · ' + label;
+  const subject = '这周的' + cityName + '，我给你留了几张票 · ' + label;
 
   const plainBody = [
     '嘿，',
@@ -342,6 +465,7 @@ function sendIssueTo_(toAddress) {
     htmlBody: htmlBody,
     name: CONFIG.SENDER_NAME
   });
+  return true;
 }
 
 // 邮件里的单条活动，做成和网页一致的「车票存根」样式。

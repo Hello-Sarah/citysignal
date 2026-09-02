@@ -1,8 +1,10 @@
-WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick
-2026-09-01	三藩市市内	吃	吃	周一不是周三		1 Ferry Building, SF	已核实				
-2026-09-02	外太空	吃	吃	非法Zone		somewhere	已核实				
-2026-09-02	三藩市市内	吃	吃	非法Status		somewhere	大概吧				
-2026-09-02	华人社群活动	一天入门即兴喜剧	喜剧	一天入门即兴喜剧		4701 Patrick Henry Dr	场地已核实				
-2026-09-02	三藩市市内	玩	玩	MapLink填了微信号		somewhere	未核实		微信nowtheaterbayarea		
-2026-09-02	三藩市市内	玩	玩	"=HYPERLINK(""evil"")"		somewhere	未核实				
-2026-09-02	三藩市市内	玩	玩				已核实				
+City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick
+三藩市湾区	2026-09-01	三藩市市内	吃	吃	周一不是周三		1 Ferry Building, SF	已核实				
+三藩市湾区	2026-09-02	外太空	吃	吃	非法Zone		somewhere	已核实				
+三藩市湾区	2026-09-02	三藩市市内	吃	吃	非法Status		somewhere	大概吧				
+三藩市湾区	2026-09-02	华人社群活动	一天入门即兴喜剧	喜剧	一天入门即兴喜剧		4701 Patrick Henry Dr	场地已核实				
+三藩市湾区	2026-09-02	三藩市市内	玩	玩	MapLink填了微信号		somewhere	未核实		微信nowtheaterbayarea		
+三藩市湾区	2026-09-02	三藩市市内	玩	玩	"=HYPERLINK(""evil"")"		somewhere	未核实				
+三藩市湾区	2026-09-02	三藩市市内	玩	玩				已核实				
+香港	2026-09-02	湾区市外	玩	玩	分区串城市	09.05	中环	已核实		https://www.google.com/maps/search/?api=1&query=hk		
+香港特别行政区	2026-09-02	港岛	展	展	城市名拼错	09.06	湾仔	已核实		https://www.google.com/maps/search/?api=1&query=hk2		

@@ -1,12 +1,12 @@
-WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick
-2026-09-02	三藩市市内	吃	吃	Sergeant Ma	09.09 开业	185 Berry St, China Basin, SF	场地已核实		https://www.google.com/maps/search/?api=1&query=185+Berry+St%2C+China+Basin%2C+SF	亚洲风味海鲜·信源SF Standard	★
-2026-09-02	三藩市市内	吃	吃	Ferry Plaza 农夫市集	周二/四 10–2pm・周六 8am–2pm	1 Ferry Building, SF	已核实	免费·无需预约	https://www.google.com/maps/search/?api=1&query=1+Ferry+Building%2C+SF	每周固定	
-2026-09-02	三藩市市内	展	展	Asian Art Museum 每月首个周日免费	09.06 周日 10:30am起	200 Larkin St, SF	已核实	免费	https://www.google.com/maps/search/?api=1&query=200+Larkin+St%2C+SF	asianart.org官方	★
-2026-09-02	三藩市市内	展	展	The Etruscans 伊特鲁里亚人	至09.20	Legion of Honor, 100 34th Ave, SF	已核实	需购票	https://www.google.com/maps/search/?api=1&query=Legion+of+Honor%2C+100+34th+Ave%2C+SF	famsf.org官方	★
-2026-09-02	三藩市市内	玩	玩	華埠鬼節 Hungry Ghost Festival	09.05周六 2–6pm	Portsmouth Square, 733 Kearny St, SF	场地已核实	免费	https://www.google.com/maps/search/?api=1&query=Portsmouth+Square%2C+733+Kearny+St%2C+SF	中华文化中心主办·2026日期仅聚合站有	
-2026-09-02	三藩市市内	玩	玩	World Arts West 世界舞蹈节	09.06周日 1–4pm	Presidio Tunnel Tops East Meadow, SF	已核实	免费	https://www.google.com/maps/search/?api=1&query=Presidio+Tunnel+Tops+East+Meadow%2C+SF	presidio.gov官方	
-2026-09-02	三藩市市内	演	演	Free Shakespeare in the Park《Antony and Cleopatra》	09.05–07・09.12–13 下午2pm	McLaren Park, Jerry Garcia Amphitheater, SF	已核实	免费·无需购票	https://www.google.com/maps/search/?api=1&query=McLaren+Park%2C+Jerry+Garcia+Amphitheater%2C+SF	sfshakes.org官方排期	
-2026-09-02	湾区市外	玩·Millbrae	玩	Millbrae Art & Wine Festival	09.05–06 10am–5pm	Broadway, Downtown Millbrae	已核实	免费	https://www.google.com/maps/search/?api=1&query=Broadway%2C+Downtown+Millbrae	第55届·millbraechamber.com官方	★
-2026-09-02	湾区市外	玩·Berkeley	玩	第6届 Bizerkeley 素食美食节	09.06周日 12–6pm	MLK Jr. Civic Center Park, Berkeley	已核实	$8.24起	https://www.google.com/maps/search/?api=1&query=MLK+Jr.+Civic+Center+Park%2C+Berkeley	主办方Eventbrite确认	★
-2026-09-02	华人社群活动	三藩市	读书	Silent Reading Club	每周四 7-9pm	38 Waverly Pl, SF	场地已核实	免费限12人	https://www.google.com/maps/search/?api=1&query=38+Waverly+Pl%2C+SF	示例·社群活动	
-2026-09-02	华人社群活动	南湾	喜剧	喜剧新生秀	09.06周日 6:30-8pm	4701 Patrick Henry Dr, Santa Clara	未核实	免费	https://www.google.com/maps/search/?api=1&query=4701+Patrick+Henry+Dr%2C+Santa+Clara	示例·仅社群渠道有信息	
+City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick
+三藩市湾区	2026-09-02	三藩市市内	吃	吃	Sergeant Ma	09.09 开业	185 Berry St, China Basin, SF	场地已核实		https://www.google.com/maps/search/?api=1&query=185+Berry+St%2C+China+Basin%2C+SF	亚洲风味海鲜·信源SF Standard	★
+三藩市湾区	2026-09-02	三藩市市内	吃	吃	Ferry Plaza 农夫市集	周二/四 10–2pm・周六 8am–2pm	1 Ferry Building, SF	已核实	免费·无需预约	https://www.google.com/maps/search/?api=1&query=1+Ferry+Building%2C+SF	每周固定	
+三藩市湾区	2026-09-02	三藩市市内	展	展	Asian Art Museum 每月首个周日免费	09.06 周日 10:30am起	200 Larkin St, SF	已核实	免费	https://www.google.com/maps/search/?api=1&query=200+Larkin+St%2C+SF	asianart.org官方	★
+三藩市湾区	2026-09-02	三藩市市内	展	展	The Etruscans 伊特鲁里亚人	至09.20	Legion of Honor, 100 34th Ave, SF	已核实	需购票	https://www.google.com/maps/search/?api=1&query=Legion+of+Honor%2C+100+34th+Ave%2C+SF	famsf.org官方	★
+三藩市湾区	2026-09-02	三藩市市内	玩	玩	華埠鬼節 Hungry Ghost Festival	09.05周六 2–6pm	Portsmouth Square, 733 Kearny St, SF	场地已核实	免费	https://www.google.com/maps/search/?api=1&query=Portsmouth+Square%2C+733+Kearny+St%2C+SF	中华文化中心主办·2026日期仅聚合站有	
+三藩市湾区	2026-09-02	三藩市市内	玩	玩	World Arts West 世界舞蹈节	09.06周日 1–4pm	Presidio Tunnel Tops East Meadow, SF	已核实	免费	https://www.google.com/maps/search/?api=1&query=Presidio+Tunnel+Tops+East+Meadow%2C+SF	presidio.gov官方	
+三藩市湾区	2026-09-02	三藩市市内	演	演	Free Shakespeare in the Park《Antony and Cleopatra》	09.05–07・09.12–13 下午2pm	McLaren Park, Jerry Garcia Amphitheater, SF	已核实	免费·无需购票	https://www.google.com/maps/search/?api=1&query=McLaren+Park%2C+Jerry+Garcia+Amphitheater%2C+SF	sfshakes.org官方排期	
+三藩市湾区	2026-09-02	湾区市外	玩·Millbrae	玩	Millbrae Art & Wine Festival	09.05–06 10am–5pm	Broadway, Downtown Millbrae	已核实	免费	https://www.google.com/maps/search/?api=1&query=Broadway%2C+Downtown+Millbrae	第55届·millbraechamber.com官方	★
+三藩市湾区	2026-09-02	湾区市外	玩·Berkeley	玩	第6届 Bizerkeley 素食美食节	09.06周日 12–6pm	MLK Jr. Civic Center Park, Berkeley	已核实	$8.24起	https://www.google.com/maps/search/?api=1&query=MLK+Jr.+Civic+Center+Park%2C+Berkeley	主办方Eventbrite确认	★
+三藩市湾区	2026-09-02	华人社群活动	三藩市	读书	Silent Reading Club	每周四 7-9pm	38 Waverly Pl, SF	场地已核实	免费限12人	https://www.google.com/maps/search/?api=1&query=38+Waverly+Pl%2C+SF	示例·社群活动	
+三藩市湾区	2026-09-02	华人社群活动	南湾	喜剧	喜剧新生秀	09.06周日 6:30-8pm	4701 Patrick Henry Dr, Santa Clara	未核实	免费	https://www.google.com/maps/search/?api=1&query=4701+Patrick+Henry+Dr%2C+Santa+Clara	示例·仅社群渠道有信息	
