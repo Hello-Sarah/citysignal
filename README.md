@@ -1,4 +1,4 @@
-# SF Bay Weekly · 三藩市 & 湾区周报
+# CitySignal · Local Events Digest
 
 A weekly, source-verified events digest for one specific reader — delivered as a public web page
 plus a scheduled email. Built on Google Apps Script + Google Sheets, zero infrastructure cost.
