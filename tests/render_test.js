@@ -131,6 +131,18 @@ console.log('\n=== 网页渲染 ===');
     notContains(out.html, 'SF 精选餐厅');
   });
 
+  check('站内链接走顶层窗口（base target=_top）', () => {
+    // Apps Script 的沙盒 iframe 不允许在内部加载 script.google.com，
+    // 少了这一行，点城市 tab 或往期链接会得到 "refused to connect"。
+    const out = app.doGet({});
+    contains(out.html, '<base target="_top">');
+  });
+
+  check('地图链接仍在新标签页打开，不被 base 影响', () => {
+    const out = app.doGet({});
+    contains(out.html, 'target="_blank"');
+  });
+
   check('精选条目带金色高亮与徽章', () => {
     const out = app.doGet({});
     contains(out.html, 'ticket pick');

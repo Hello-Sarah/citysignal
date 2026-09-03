@@ -181,6 +181,11 @@ function renderPage_(data, city, weekIds, selectedWeek) {
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
+<!-- Apps Script 把页面装进沙盒 iframe。站内链接若不指定 target，
+     点击会试图在 iframe 内部加载 script.google.com，而 Google 禁止自己被嵌套，
+     结果是「refused to connect」。base target=_top 让跳转发生在顶层窗口。
+     地图链接自己带 target="_blank"，显式 target 覆盖 base，不受影响。 -->
+<base target="_top">
 <title>${esc_((city && city.siteTitle) || CONFIG.SITE_TITLE)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
