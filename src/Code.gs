@@ -1,69 +1,74 @@
 /**
  * ============================================================
- * 湾区周报自动化脚本
+ * 灣區週報自動化腳本
  * ============================================================
  * 功能：
- * 1. doGet()        — 对外提供网页，任何人打开链接都能看，带历史周报侧边栏
- * 2. sendWeeklyEmail() — 生成当周邮件并发送给指定收件人
- * 3. createWeeklyTrigger() — 一次性运行，设置"每周三自动发邮件"的定时任务
+ * 1. doGet()        — 對外提供網頁，任何人打開鏈接都能看，帶歷史週報側邊欄
+ * 2. sendWeeklyEmail() — 生成當週郵件併發送給指定收件人
+ * 3. createWeeklyTrigger() — 一次性運行，設置"每週三自動發郵件"的定時任務
  *
- * 使用前必须做的事：
- * 1. 把下面 CONFIG 里的 SHEET_ID、RECIPIENT_EMAIL 改成你自己的
- * 2. 按照"表格结构说明.md"建好Google Sheet的列
- * 3. 部署为Web App（详见搭建指南）
- * 4. 手动运行一次 createWeeklyTrigger() 来设置定时任务
+ * 使用前必須做的事：
+ * 1. 把下面 CONFIG 裏的 SHEET_ID、RECIPIENT_EMAIL 改成你自己的
+ * 2. 按照"表格結構説明.md"建好Google Sheet的列
+ * 3. 部署為Web App（詳見搭建指南）
+ * 4. 手動運行一次 createWeeklyTrigger() 來設置定時任務
  * ============================================================
  */
 
 const CONFIG = {
-  // 把这个换成你的Google Sheet的ID（网址中 /d/ 和 /edit 之间那一串）
+  // 把這個換成你的Google Sheet的ID（網址中 /d/ 和 /edit 之間那一串）
   SHEET_ID: 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE',
   SHEET_TAB_NAME: 'Events',
   // ---- 城市配置 ----
-  // 每个城市自成一期：City 列决定条目属于哪个城市，Zone 的合法取值也按城市查表。
-  // 加一个新城市 = 在这里加一项 + 往 Sheet 里写数据，不需要改任何渲染代码。
-  // zones 的顺序就是页面上分区的显示顺序。
+  // 每個城市自成一期：City 列決定條目屬於哪個城市，Zone 的合法取值也按城市查表。
+  // 加一個新城市 = 在這裏加一項 + 往 Sheet 裏寫數據，不需要改任何渲染代碼。
+  // zones 的順序就是頁面上分區的顯示順序。
   CITIES: [
     {
       slug: 'sf',
-      label: '三藩市湾区',
-      // 每个城市有自己的页面标题：换城市不会改动别的城市读者看到的字
-      siteTitle: '三藩市 & 湾区周报',
+      label: '三藩市灣區',
+      // 每個城市有自己的頁面標題：換城市不會改動別的城市讀者看到的字
+      siteTitle: '三藩市 & 灣區週報',
       eyebrow: 'SF & Bay Area Weekly',
-      // 邮件主题里的简称：刻意保持「湾区」，让现有读者收到的主题一字不变
-      mailName: '湾区',
-      zones: ['三藩市市内', '湾区市外', '华人社群活动']
+      // 郵件主題裏的簡稱：刻意保持「灣區」，讓現有讀者收到的主題一字不變
+      mailName: '灣區',
+      // 天氣用美國國家氣象局（NWS）——政府氣象源，免 API key。
+      // 和整個項目一樣：能用官方就不用聚合站。
+      weather: { provider: 'nws', lat: 37.7749, lon: -122.4194 },
+      zones: ['三藩市市內', '灣區市外', '華人社群活動']
     },
     {
       slug: 'hk',
       label: '香港',
-      siteTitle: '香港周报',
+      siteTitle: '香港週報',
       eyebrow: 'Hong Kong Weekly',
       mailName: '香港',
-      zones: ['港岛', '九龙', '新界']
+      // 香港天文台開放數據，繁體中文九天預報
+      weather: { provider: 'hko' },
+      zones: ['港島', '九龍', '新界']
     }
-    // 纽约留位：把下面这项取消注释并补好 zones 即可，无需改代码
-    // , { slug: 'ny', label: '纽约', siteTitle: '纽约周报', zones: ['曼哈顿', '布鲁克林 & 皇后', '外围'] }
+    // 紐約留位：把下面這項取消註釋並補好 zones 即可，無需改代碼
+    // , { slug: 'ny', label: '紐約', siteTitle: '紐約週報', zones: ['曼哈頓', '布魯克林 & 皇后', '外圍'] }
   ],
 
-  // ---- 收件人与订阅 ----
-  // 每个人只收自己订阅城市的邮件，一个城市一封，互不混在一起。
-  // cities 里写 CITIES 的 slug。
+  // ---- 收件人與訂閲 ----
+  // 每個人只收自己訂閲城市的郵件，一個城市一封，互不混在一起。
+  // cities 裏寫 CITIES 的 slug。
   RECIPIENTS: [
     { email: 'reader-sf@example.com', cities: ['sf'] },
     { email: 'reader-both@example.com', cities: ['sf', 'hk'] }
   ],
-  // 邮件发件人显示名称
-  SENDER_NAME: '湾区周报',
-  // 公开网页地址（必须写死）。
-  // 曾经用 ScriptApp.getService().getUrl() 动态取，但从编辑器手动运行时
-  // 它返回的是 /dev 开发版地址，收件人点开会被 Google 拦在权限页外。
-  SITE_URL: 'https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID/exec',
-  // previewWeeklyEmail() 额外发到的地址 —— 都是作者本人的邮箱。
-  // 正式收件人在 RECIPIENTS 里，预览不会发给他们。
+  // 郵件發件人顯示名稱
+  SENDER_NAME: '灣區週報',
+  // 公開網頁地址（必須寫死）。
+  // 曾經用 ScriptApp.getService().getUrl() 動態取，但從編輯器手動運行時
+  // 它返回的是 /dev 開發版地址，收件人點開會被 Google 攔在權限頁外。
+  SITE_URL: 'https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID_HERE/exec',
+  // previewWeeklyEmail() 額外發到的地址 —— 都是作者本人的郵箱。
+  // 正式收件人在 RECIPIENTS 裏，預覽不會發給他們。
   PREVIEW_ALSO: ['you@example.com', 'reader-both@example.com'],
-  // 兜底页面标题：仅在城市配置里没写 siteTitle 时使用
-  SITE_TITLE: '本地活动周报'
+  // 兜底頁面標題：僅在城市配置裏沒寫 siteTitle 時使用
+  SITE_TITLE: '本地活動週報'
 };
 
 // ============================================================
@@ -81,27 +86,126 @@ function findCityByLabel_(label) {
   return citiesList_().filter(c => c.label === String(label || '').trim())[0] || null;
 }
 
-// 默认城市 = 配置里的第一个。刻意不按"哪个城市最近更新"来选：
-// 读者每次打开看到的城市应该是稳定的，不该因为另一个城市更新了就跳走。
+// 默認城市 = 配置裏的第一個。刻意不按"哪個城市最近更新"來選：
+// 讀者每次打開看到的城市應該是穩定的，不該因為另一個城市更新了就跳走。
 function defaultCity_() {
   return citiesList_()[0] || null;
 }
 
 // ============================================================
-// 入口：网页请求处理
+// 天氣預報
+// ============================================================
+// 只用政府氣象源：美國國家氣象局 (api.weather.gov) 與香港天文台 (data.weather.gov.hk)。
+// 兩者都免 API key。挑信源的標準和活動本身一致——能用官方就不用聚合站。
+//
+// 失敗一律靜默降級：拿不到天氣就不顯示這一條，絕不讓它拖垮整頁。
+// 一份週報沒有天氣還是週報；打不開的週報什麼都不是。
+
+function weatherFor_(city) {
+  if (!city || !city.weather) return null;
+  const key = 'wx_' + city.slug;
+  let cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+    const hit = cache.get(key);
+    if (hit) return JSON.parse(hit);
+  } catch (err) { /* 快取不可用不影響主流程 */ }
+
+  let days = null;
+  try {
+    days = city.weather.provider === 'hko' ? fetchHko_() : fetchNws_(city.weather);
+  } catch (err) {
+    return null;
+  }
+  if (!days || !days.length) return null;
+
+  try {
+    // 三小時快取：預報本來就不會分鐘級變動，也避免每次開頁都打一次官方 API
+    if (cache) cache.put(key, JSON.stringify(days), 3 * 60 * 60);
+  } catch (err) { /* 快取寫失敗不影響主流程 */ }
+  return days;
+}
+
+function fetchNws_(cfg) {
+  // NWS 要求帶 User-Agent，否則直接拒絕
+  const opts = {
+    muteHttpExceptions: true,
+    headers: { 'User-Agent': 'CitySignal weekly digest (contact via GitHub)' }
+  };
+  const pt = UrlFetchApp.fetch(
+    'https://api.weather.gov/points/' + cfg.lat + ',' + cfg.lon, opts);
+  if (pt.getResponseCode() !== 200) return null;
+  const url = JSON.parse(pt.getContentText()).properties.forecast;
+
+  const fc = UrlFetchApp.fetch(url, opts);
+  if (fc.getResponseCode() !== 200) return null;
+  const periods = JSON.parse(fc.getContentText()).properties.periods || [];
+
+  // NWS 一天拆成日/夜兩段，只取白天那段
+  return periods.filter(p => p.isDaytime).slice(0, 5).map(p => ({
+    label: p.name,
+    hi: p.temperature + '\u00B0' + p.temperatureUnit,
+    lo: '',
+    text: p.shortForecast
+  }));
+}
+
+function fetchHko_() {
+  const res = UrlFetchApp.fetch(
+    'https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc',
+    { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  const list = JSON.parse(res.getContentText()).weatherForecast || [];
+  return list.slice(0, 5).map(d => ({
+    label: String(d.week || '').replace('星期', '週'),
+    hi: (d.forecastMaxtemp && d.forecastMaxtemp.value) ? d.forecastMaxtemp.value + '\u00B0' : '',
+    lo: (d.forecastMintemp && d.forecastMintemp.value) ? d.forecastMintemp.value + '\u00B0' : '',
+    text: String(d.forecastWeather || '').replace(/。$/, '')
+  }));
+}
+
+// 天氣是錦上添花，不是週報本身。所以這一層外面再包一道 try：
+// weatherFor_ 內部已經擋掉了網絡失敗，但擋不住整個服務不可用
+// （CacheService / UrlFetchApp 在權限沒批下來、或跑在非 Apps Script 環境時，
+// 連引用本身都會拋 ReferenceError，那種錯漏出去就是整頁 500）。
+// 一份沒有天氣的週報還是週報；打不開的週報什麼都不是。
+function renderWeather_(city) {
+  let days = null;
+  try {
+    days = weatherFor_(city);
+  } catch (err) {
+    return '';
+  }
+  if (!days) return '';   // 靜默降級
+  const src = city.weather.provider === 'hko' ? '香港天文台' : 'US National Weather Service';
+  const cells = days.map(d => `
+    <div class="wx-day">
+      <div class="wx-label">${esc_(d.label)}</div>
+      <div class="wx-temp">${esc_(d.hi)}${d.lo ? ' / ' + esc_(d.lo) : ''}</div>
+      <div class="wx-text">${esc_(d.text)}</div>
+    </div>`).join('');
+  return `
+  <div class="wx">
+    <div class="wx-head">出門前看一眼 · 信源 ${esc_(src)}</div>
+    <div class="wx-row">${cells}</div>
+  </div>`;
+}
+
+// ============================================================
+// 入口：網頁請求處理
 // ============================================================
 function doGet(e) {
   const param = (e && e.parameter) ? e.parameter : {};
   const data = readAllEvents_();
 
-  // 城市：?city=hk。非法或缺省一律回落到默认城市，不报错。
+  // 城市：?city=hk。非法或缺省一律回落到默認城市，不報錯。
   const city = findCityBySlug_(param.city) || defaultCity_();
 
-  // 期次列表是按城市算的：切城市时下面的往期列表跟着换
+  // 期次列表是按城市算的：切城市時下面的往期列表跟着換
   const weekIds = getSortedWeekIds_(data, city);
   const selectedWeek = (param.week && weekIds.indexOf(param.week) !== -1)
     ? param.week
-    : (weekIds[0] || ''); // 该城市还没有任何一期时为空字符串，渲染层出空状态
+    : (weekIds[0] || ''); // 該城市還沒有任何一期時為空字符串，渲染層出空狀態
 
   const html = renderPage_(data, city, weekIds, selectedWeek);
   return HtmlService.createHtmlOutput(html)
@@ -110,16 +214,38 @@ function doGet(e) {
 }
 
 // ============================================================
-// 读取Sheet数据
+// 讀取Sheet數據
 // ============================================================
-// Google Sheets 会把 2026-08-26 这样的值自动识别成日期，getValues() 返回的是 Date 对象
-// 而不是字符串，后面 weekId.split('-') 就会炸。这里统一把单元格转成字符串。
+// Google Sheets 會把 2026-08-26 這樣的值自動識別成日期，getValues() 返回的是 Date 對象
+// 而不是字符串，後面 weekId.split('-') 就會炸。這裏統一把單元格轉成字符串。
 function cellToString_(v) {
   if (v === null || v === undefined) return '';
   if (Object.prototype.toString.call(v) === '[object Date]') {
     return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   }
   return String(v).trim();
+}
+
+// 表格裏的枚舉值有簡體歷史數據（表是簡體時期建的），代碼現在是繁體。
+// 不去批量改表——那是拿瀏覽器自動化動用戶的真實數據，改漏一個字那條就從頁面上消失了。
+// 改成讀取時映射：簡繁兩種寫法都認，表格不用動，也不怕改到一半斷掉。
+// 只映射枚舉列（City/Zone/SubGroup/Category/Status），正文一律不碰——
+// 正文要轉繁體得用 OpenCC 整段轉，靠字典逐字替換只會把活動名改壞。
+var ENUM_S2T_ = {
+  '三藩市湾区': '三藩市灣區', '纽约': '紐約',
+  '三藩市市内': '三藩市市內', '湾区市外': '灣區市外', '华人社群活动': '華人社群活動',
+  '港岛': '港島', '九龙': '九龍',
+  '曼哈顿': '曼哈頓', '布鲁克林 & 皇后': '布魯克林 & 皇后', '外围': '外圍',
+  '已核实': '已核實', '场地已核实': '場地已核實', '未核实': '未核實',
+  '半岛': '半島', '南湾': '南灣', '东湾': '東灣', '北湾': '北灣',
+  '喜剧': '喜劇', '音乐': '音樂', '讲座': '講座', '读书': '讀書',
+  '艺术': '藝術', '戏剧': '戲劇', '电影': '電影', '节庆': '節慶',
+  '运动': '運動', '亲子': '親子', '农夫市集': '農夫市集'
+};
+var ENUM_COLUMNS_ = ['City', 'Zone', 'SubGroup', 'Category', 'Status'];
+
+function normalizeEnum_(v) {
+  return Object.prototype.hasOwnProperty.call(ENUM_S2T_, v) ? ENUM_S2T_[v] : v;
 }
 
 function readAllEvents_() {
@@ -130,17 +256,20 @@ function readAllEvents_() {
 
   return rows.map(r => {
     const obj = {};
-    headers.forEach((h, i) => obj[h] = cellToString_(r[i]));
+    headers.forEach((h, i) => {
+      const val = cellToString_(r[i]);
+      obj[h] = ENUM_COLUMNS_.indexOf(h) >= 0 ? normalizeEnum_(val) : val;
+    });
     return obj;
   });
-  // 期望的列（表头）：
+  // 期望的列（表頭）：
   // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick
-  // City 填 CONFIG.CITIES 里的 label（如「三藩市湾区」「香港」）
-  // Pick 列填任意非空值（建议 ★）= 标记为「给你挑的」，会在页面上高亮
+  // City 填 CONFIG.CITIES 裏的 label（如「三藩市灣區」「香港」）
+  // Pick 列填任意非空值（建議 ★）= 標記為「給你挑的」，會在頁面上高亮
 }
 
-// 只返回该城市有数据的期次。城市之间的期次互相独立，
-// 三藩市出了新一期不会让香港的页面跳到一个空的日期上。
+// 只返回該城市有數據的期次。城市之間的期次互相獨立，
+// 三藩市出了新一期不會讓香港的頁面跳到一個空的日期上。
 function getSortedWeekIds_(data, city) {
   const rows = city ? data.filter(d => d.City === city.label) : data;
   const ids = [...new Set(rows.map(d => d.WeekId))].filter(w => w);
@@ -148,15 +277,15 @@ function getSortedWeekIds_(data, city) {
 }
 
 // ============================================================
-// 渲染整个网页（含侧边栏历史周报）
+// 渲染整個網頁（含側邊欄歷史週報）
 // ============================================================
 function renderPage_(data, city, weekIds, selectedWeek) {
   const baseUrl = ScriptApp.getService().getUrl();
   const citySlug = city ? city.slug : '';
   const weekData = data.filter(d => d.City === (city ? city.label : '') && d.WeekId === selectedWeek);
 
-  // 城市切换：普通链接，走完整的服务端往返，和期次切换同一套机制。
-  // 页面不生成内容，只呈现已经核实并入库的内容——所以这里是筛选器，不是生成按钮。
+  // 城市切換：普通鏈接，走完整的服務端往返，和期次切換同一套機制。
+  // 頁面不生成內容，只呈現已經核實併入庫的內容——所以這裏是篩選器，不是生成按鈕。
   const cityTabsHtml = citiesList_().map(c => {
     const active = c.slug === citySlug ? 'active' : '';
     return `<a class="city-tab ${active}" href="${baseUrl}?city=${encodeURIComponent(c.slug)}">${esc_(c.label)}</a>`;
@@ -169,22 +298,22 @@ function renderPage_(data, city, weekIds, selectedWeek) {
 
   const zones = (city && city.zones) ? city.zones : [];
   const zonesHtml = zones.map(zone => renderZone_(zone, weekData)).join('');
-  // 空状态：新城市在第一期做出来之前，页面必须能正常打开并说明情况，
-  // 而不是白屏或渲染出一个只有标题的空壳。
+  // 空狀態：新城市在第一期做出來之前，頁面必須能正常打開並説明情況，
+  // 而不是白屏或渲染出一個只有標題的空殼。
   const bodyHtml = zonesHtml || `
     <div class="empty-state">
-      <div class="empty-title">${esc_((city && city.label) || '')}还没有内容</div>
-      <div class="empty-note">这个城市的第一期还在整理中。每条活动都要先核实过信源才会出现在这里。</div>
+      <div class="empty-title">${esc_((city && city.label) || '')}還沒有內容</div>
+      <div class="empty-note">這個城市的第一期還在整理中。每條活動都要先核實過信源才會出現在這裏。</div>
     </div>`;
 
   return `<!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<!-- Apps Script 把页面装进沙盒 iframe。站内链接若不指定 target，
-     点击会试图在 iframe 内部加载 script.google.com，而 Google 禁止自己被嵌套，
-     结果是「refused to connect」。base target=_top 让跳转发生在顶层窗口。
-     地图链接自己带 target="_blank"，显式 target 覆盖 base，不受影响。 -->
+<!-- Apps Script 把頁面裝進沙盒 iframe。站內鏈接若不指定 target，
+     點擊會試圖在 iframe 內部加載 script.google.com，而 Google 禁止自己被嵌套，
+     結果是「refused to connect」。base target=_top 讓跳轉發生在頂層窗口。
+     地圖鏈接自己帶 target="_blank"，顯式 target 覆蓋 base，不受影響。 -->
 <base target="_top">
 <title>${esc_((city && city.siteTitle) || CONFIG.SITE_TITLE)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -196,7 +325,7 @@ function renderPage_(data, city, weekIds, selectedWeek) {
   <aside class="sidebar">
     ${citiesList_().length > 1 ? `<div class="sidebar-title">城市</div>
     <div class="city-tabs">${cityTabsHtml}</div>` : ''}
-    <div class="sidebar-title">往期周报</div>
+    <div class="sidebar-title">往期週報</div>
     <div class="week-list">${sidebarHtml}</div>
   </aside>
   <main class="main">
@@ -204,6 +333,7 @@ function renderPage_(data, city, weekIds, selectedWeek) {
       <div class="eyebrow">${esc_((city && city.eyebrow) || '')}</div>
       <h1>${selectedWeek ? formatWeekLabel_(selectedWeek) : esc_((city && city.label) || '')}</h1>
     </header>
+    ${selectedWeek ? renderWeather_(city) : ''}
     ${bodyHtml}
   </main>
 </div>
@@ -212,10 +342,10 @@ function renderPage_(data, city, weekIds, selectedWeek) {
 }
 
 function formatWeekLabel_(weekId) {
-  // weekId 格式假设为 2026-08-26，转成"08.26 那一周"
+  // weekId 格式假設為 2026-08-26，轉成"08.26 那一週"
   const s = cellToString_(weekId);
   const parts = s.split('-');
-  if (parts.length === 3) return `${parts[1]}.${parts[2]} 那一周`;
+  if (parts.length === 3) return `${parts[1]}.${parts[2]} 那一週`;
   return s;
 }
 
@@ -237,7 +367,7 @@ function renderZone_(zoneName, weekData) {
   ${groupsHtml}`;
 }
 
-// 把表格里的内容转义后再放进HTML，避免标题里出现 & < > " 时把页面弄坏
+// 把表格裏的內容轉義後再放進HTML，避免標題裏出現 & < > " 時把頁面弄壞
 function esc_(v) {
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -245,15 +375,15 @@ function esc_(v) {
 }
 
 function renderTicket_(item) {
-  const statusClass = item.Status === '已核实' ? 'verified'
-    : item.Status === '场地已核实' ? 'venue-verified'
+  const statusClass = item.Status === '已核實' ? 'verified'
+    : item.Status === '場地已核實' ? 'venue-verified'
     : 'unverified';
-  const statusLabel = item.Status || '未核实';
-  // 只有真正的 http(s) 链接才渲染地图按钮，防止表格里填了微信号之类的内容
+  const statusLabel = item.Status || '未核實';
+  // 只有真正的 http(s) 鏈接才渲染地圖按鈕，防止表格裏填了微信號之類的內容
   const mapUrl = String(item.MapLink || '').trim();
   const hasMap = /^https?:\/\//i.test(mapUrl);
 
-  // Pick 列非空 = Sarah/Claude 手选的推荐条目，视觉上高亮
+  // Pick 列非空 = Sarah/Claude 手選的推薦條目，視覺上高亮
   const isPick = String(item.Pick || '').trim() !== '';
 
   return `
@@ -263,12 +393,12 @@ function renderTicket_(item) {
       <span class="date">${esc_(item.DateInfo)}</span>
     </div>
     <div class="details">
-      <h3>${esc_(item.Title)}${isPick ? '<span class="pick-badge">给你挑的</span>' : ''}</h3>
+      <h3>${esc_(item.Title)}${isPick ? '<span class="pick-badge">給你挑的</span>' : ''}</h3>
       <div class="where">${esc_(item.Location)}</div>
       <div class="meta-row">
         ${item.PriceInfo ? `<span class="pill ${statusClass}">${esc_(item.PriceInfo)}</span>` : ''}
         <span class="status-badge ${statusClass}">${esc_(statusLabel)}</span>
-        ${hasMap ? `<a class="map-link" href="${esc_(mapUrl)}" target="_blank" rel="noopener">在地图中查看 →</a>` : ''}
+        ${hasMap ? `<a class="map-link" href="${esc_(mapUrl)}" target="_blank" rel="noopener">在地圖中查看 →</a>` : ''}
       </div>
       ${item.Note ? `<div class="note">${esc_(item.Note)}</div>` : ''}
     </div>
@@ -276,7 +406,7 @@ function renderTicket_(item) {
 }
 
 // ============================================================
-// 页面样式（沿用之前"车票风"设计）
+// 頁面樣式（沿用之前"車票風"設計）
 // ============================================================
 const PAGE_CSS_ = `
   :root{
@@ -295,6 +425,17 @@ const PAGE_CSS_ = `
     color:var(--ink-soft);text-decoration:none;font-size:13px;font-family:'IBM Plex Mono',monospace;}
   .week-link.active{background:var(--paper);color:var(--ink);font-weight:600;}
   .week-link:hover{background:rgba(255,255,255,0.4);}
+  .wx{margin:0 0 34px;padding:16px 18px;background:var(--paper);border-radius:4px;
+    border:1px solid var(--paper-shadow);}
+  .wx-head{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--fog-dark);margin-bottom:12px;}
+  .wx-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .wx-day{flex:1 1 110px;min-width:110px;}
+  .wx-label{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);
+    letter-spacing:.03em;}
+  .wx-temp{font-family:'IBM Plex Mono',monospace;font-size:17px;color:var(--ink);
+    margin-top:3px;font-variant-numeric:tabular-nums;}
+  .wx-text{font-size:11.5px;color:var(--fog-dark);margin-top:3px;line-height:1.5;}
   .city-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:26px;}
   .city-tab{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.04em;
     padding:5px 11px;border:1px solid var(--paper-shadow);border-radius:14px;
@@ -349,49 +490,49 @@ const PAGE_CSS_ = `
 `;
 
 // ============================================================
-// 发送每周邮件
+// 發送每週郵件
 // ============================================================
-// 正式发信：按城市各发一封，每个人只收自己订阅的城市。
-// 一个城市一封而不是把多城市塞进一封，是因为「当期精选前 5 条」这个概念
-// 只有在单一城市下才成立；混城市之后读者要先分辨哪条属于哪里，反而更累。
+// 正式發信：按城市各發一封，每個人只收自己訂閲的城市。
+// 一個城市一封而不是把多城市塞進一封，是因為「當期精選前 5 條」這個概念
+// 只有在單一城市下才成立；混城市之後讀者要先分辨哪條屬於哪裏，反而更累。
 function sendWeeklyEmail() {
   const sent = [];
   citiesList_().forEach(city => {
     const subs = (CONFIG.RECIPIENTS || [])
       .filter(r => r && r.email && (r.cities || []).indexOf(city.slug) !== -1)
       .map(r => r.email);
-    if (!subs.length) return;                        // 没人订阅这个城市
-    if (!sendIssueTo_(subs.join(','), city)) return; // 该城市还没有任何一期
+    if (!subs.length) return;                        // 沒人訂閲這個城市
+    if (!sendIssueTo_(subs.join(','), city)) return; // 該城市還沒有任何一期
     sent.push(city.label + ' -> ' + subs.join(', '));
   });
   if (!sent.length) {
-    Logger.log('没有任何邮件被发出：检查 CONFIG.RECIPIENTS 的订阅设置，或该城市是否已有数据');
+    Logger.log('沒有任何郵件被髮出：檢查 CONFIG.RECIPIENTS 的訂閲設置，或該城市是否已有數據');
   } else {
-    Logger.log('已发送:\n' + sent.join('\n'));
+    Logger.log('已發送:\n' + sent.join('\n'));
   }
 }
 
-// 预览：只发到作者本人的邮箱（脚本所有者 + CONFIG.PREVIEW_ALSO）。
-// 不会发给 CONFIG.RECIPIENTS 里的读者。
-// 用途：正式发出前先自己看一眼排版，不用拿读者当测试。
+// 預覽：只發到作者本人的郵箱（腳本所有者 + CONFIG.PREVIEW_ALSO）。
+// 不會發給 CONFIG.RECIPIENTS 裏的讀者。
+// 用途：正式發出前先自己看一眼排版，不用拿讀者當測試。
 function previewWeeklyEmail() {
-  // 这里刻意不用 Session.getActiveUser().getEmail()：那需要额外的 OAuth
-  // 范围（读取账号邮箱），为一个预览功能扩大脚本权限不划算。写死即可。
+  // 這裏刻意不用 Session.getActiveUser().getEmail()：那需要額外的 OAuth
+  // 範圍（讀取賬號郵箱），為一個預覽功能擴大腳本權限不划算。寫死即可。
   const list = (CONFIG.PREVIEW_ALSO || []).filter(Boolean);
-  if (!list.length) throw new Error('CONFIG.PREVIEW_ALSO 是空的，没有预览地址');
-  // 预览把每个有数据的城市各发一封，一次看完所有城市的排版
+  if (!list.length) throw new Error('CONFIG.PREVIEW_ALSO 是空的，沒有預覽地址');
+  // 預覽把每個有數據的城市各發一封，一次看完所有城市的排版
   const done = [];
   citiesList_().forEach(city => {
     if (sendIssueTo_(list.join(','), city)) done.push(city.label);
   });
-  if (!done.length) throw new Error('没有任何城市有数据，无可预览内容');
-  Logger.log('预览邮件已发送至 ' + list.join(', ') +
-             '；覆盖城市: ' + done.join('、') + '（未发给正式收件人）');
+  if (!done.length) throw new Error('沒有任何城市有數據，無可預覽內容');
+  Logger.log('預覽郵件已發送至 ' + list.join(', ') +
+             '；覆蓋城市: ' + done.join('、') + '（未發給正式收件人）');
 }
 
-// 返回 true = 真的发了；false = 该城市还没有任何一期，什么也没发。
-// 刻意不发空邮件：一封「本周没有内容」的邮件对读者是噪音，
-// 而且会让「收到邮件 = 有新内容」这个约定失效。
+// 返回 true = 真的發了；false = 該城市還沒有任何一期，什麼也沒發。
+// 刻意不發空郵件：一封「本週沒有內容」的郵件對讀者是噪音，
+// 而且會讓「收到郵件 = 有新內容」這個約定失效。
 function sendIssueTo_(toAddress, city) {
   const data = readAllEvents_();
   const weekIds = getSortedWeekIds_(data, city);
@@ -406,26 +547,26 @@ function sendIssueTo_(toAddress, city) {
   const label = formatWeekLabel_(latestWeek);
   const cityName = city.mailName || city.label;
 
-  // 优先列出 Pick 标记的条目；不足5条再用其余的补齐
+  // 優先列出 Pick 標記的條目；不足5條再用其餘的補齊
   const picked = weekData.filter(d => String(d.Pick || '').trim() !== '');
   const rest = weekData.filter(d => String(d.Pick || '').trim() === '');
   const top = picked.concat(rest).slice(0, 5);
 
-  // 注意：主题和正文里都不要放 emoji。
-  // 曾经在主题里放过一个票券 emoji，收件人那边是一串问号方块 —— 非 BMP
-  // 字符没扛过邮件头编码。中文是 BMP 内的三字节字符，没有这个问题。
-  const subject = '这周的' + cityName + '，我给你留了几张票 · ' + label;
+  // 注意：主題和正文裏都不要放 emoji。
+  // 曾經在主題裏放過一個票券 emoji，收件人那邊是一串問號方塊 —— 非 BMP
+  // 字符沒扛過郵件頭編碼。中文是 BMP 內的三字節字符，沒有這個問題。
+  const subject = '這周的' + cityName + '，我給你留了幾張票 · ' + label;
 
   const plainBody = [
     '嘿，',
     '',
-    '这周整理了 ' + weekData.length + ' 个活动，先挑几个给你：',
+    '這周整理了 ' + weekData.length + ' 個活動，先挑幾個給你：',
     '',
     top.map(d => '- ' + d.Title + '（' + d.DateInfo + '｜' + d.Location + '）').join('\n'),
     '',
-    '完整清单：' + link,
+    '完整清單：' + link,
     '',
-    '（你的落款）'
+    '想你和崽崽。'
   ].join('\n');
 
   const rows = top.map(d => renderMailItem_(d)).join('');
@@ -443,7 +584,7 @@ function sendIssueTo_(toAddress, city) {
       ${esc_(label)}
     </div>
     <div style="font-family:Georgia,serif;font-size:15px;color:#5a5449;padding-top:14px;line-height:1.6;">
-      这周整理了 ${weekData.length} 个活动，先挑几个给你 —
+      這周整理了 ${weekData.length} 個活動，先挑幾個給你 —
     </div>
   </td></tr>
 
@@ -454,12 +595,12 @@ function sendIssueTo_(toAddress, city) {
   <tr><td align="center" style="padding:26px 30px 8px 30px;">
     <a href="${esc_(link)}" style="display:inline-block;background:#a94e29;color:#ffffff;
       font-family:Georgia,serif;font-size:15px;padding:12px 30px;border-radius:24px;
-      text-decoration:none;">查看完整 ${esc_(String(weekData.length))} 条 &rarr;</a>
+      text-decoration:none;">查看完整 ${esc_(String(weekData.length))} 條 &rarr;</a>
   </td></tr>
 
   <tr><td style="padding:18px 30px 30px 30px;">
     <div style="border-top:1px dashed #c4baa4;padding-top:16px;
-      font-family:Georgia,serif;font-size:14px;color:#8a8578;">（你的落款）</div>
+      font-family:Georgia,serif;font-size:14px;color:#8a8578;">想你和崽崽。</div>
   </td></tr>
 
 </table>
@@ -473,14 +614,14 @@ function sendIssueTo_(toAddress, city) {
   return true;
 }
 
-// 邮件里的单条活动，做成和网页一致的「车票存根」样式。
-// 邮件客户端对 flex/grid 支持很差，这里一律用 table + 内联样式。
+// 郵件裏的單條活動，做成和網頁一致的「車票存根」樣式。
+// 郵件客户端對 flex/grid 支持很差，這裏一律用 table + 內聯樣式。
 function renderMailItem_(d) {
   const isPick = String(d.Pick || '').trim() !== '';
   const accent = isPick ? '#b8860b' : '#c4baa4';
   const status = String(d.Status || '').trim();
-  const statusColor = status === '已核实' ? '#4a7c59'
-    : status === '场地已核实' ? '#7a8f6b'
+  const statusColor = status === '已核實' ? '#4a7c59'
+    : status === '場地已核實' ? '#7a8f6b'
     : '#b5503c';
 
   return `
@@ -496,7 +637,7 @@ function renderMailItem_(d) {
       </td>
       <td valign="top" style="padding:12px 14px;">
         <div style="font-family:Georgia,serif;font-size:16px;color:#1e2830;line-height:1.35;">
-          ${esc_(d.Title)}${isPick ? ' <span style="font-family:\'Courier New\',monospace;font-size:9px;color:#ffffff;background:#b8860b;padding:2px 6px;border-radius:9px;">给你挑的</span>' : ''}
+          ${esc_(d.Title)}${isPick ? ' <span style="font-family:\'Courier New\',monospace;font-size:9px;color:#ffffff;background:#b8860b;padding:2px 6px;border-radius:9px;">給你挑的</span>' : ''}
         </div>
         <div style="font-family:'Courier New',monospace;font-size:11px;color:#7a7365;padding-top:5px;">
           ${esc_(d.Location)}
@@ -504,7 +645,7 @@ function renderMailItem_(d) {
         <div style="padding-top:7px;">
           ${d.PriceInfo ? `<span style="font-family:Georgia,serif;font-size:11px;color:#5a5449;">${esc_(d.PriceInfo)}</span>&nbsp;&nbsp;` : ''}
           <span style="font-family:'Courier New',monospace;font-size:10px;color:${statusColor};
-            border:1px solid ${statusColor};padding:1px 5px;">${esc_(status || '未核实')}</span>
+            border:1px solid ${statusColor};padding:1px 5px;">${esc_(status || '未核實')}</span>
         </div>
       </td>
     </tr>
@@ -514,11 +655,11 @@ function renderMailItem_(d) {
 
 
 // ============================================================
-// 一次性设置：每周三上午9点自动发邮件
-// 手动运行这个函数一次即可，之后不用再管
+// 一次性設置：每週三上午9點自動發郵件
+// 手動運行這個函數一次即可，之後不用再管
 // ============================================================
 function createWeeklyTrigger() {
-  // 先清掉旧的同名触发器，避免重复
+  // 先清掉舊的同名觸發器，避免重複
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'sendWeeklyEmail') {
       ScriptApp.deleteTrigger(t);
@@ -531,5 +672,5 @@ function createWeeklyTrigger() {
     .atHour(9)
     .create();
 
-  Logger.log('已设置：每周三上午9点自动发送邮件');
+  Logger.log('已設置：每週三上午9點自動發送郵件');
 }

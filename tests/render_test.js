@@ -85,7 +85,7 @@ console.log('\n=== 网页渲染 ===');
 
   check('缺省参数 → 默认城市（配置里第一个），显示最新一期', () => {
     const out = app.doGet({});
-    assert(out.title === '三藩市 & 湾区周报', '标题应为 SF 的 siteTitle，实际 ' + out.title);
+    assert(out.title === '三藩市 & 灣區週報', '标题应为 SF 的 siteTitle，实际 ' + out.title);
     contains(out.html, 'SF 精选餐厅');
     notContains(out.html, '上期旧店', '不应显示上一期的内容');
     notContains(out.html, 'HK 港岛展览', '不应混入其他城市');
@@ -93,17 +93,17 @@ console.log('\n=== 网页渲染 ===');
 
   check('?city=hk → 切到香港，标题与分区都跟着换', () => {
     const out = app.doGet({ parameter: { city: 'hk' } });
-    assert(out.title === '香港周报', '标题应为香港，实际 ' + out.title);
+    assert(out.title === '香港週報', '标题应为香港，实际 ' + out.title);
     contains(out.html, 'HK 港岛展览');
     contains(out.html, 'HK 新界活动');
-    contains(out.html, '港岛');
+    contains(out.html, '港島');
     notContains(out.html, 'SF 精选餐厅', '不应混入三藩市内容');
-    notContains(out.html, '湾区市外', '不应出现别的城市的分区名');
+    notContains(out.html, '灣區市外', '不应出现别的城市的分区名');
   });
 
   check('非法 city 参数 → 回落默认城市，不报错', () => {
     const out = app.doGet({ parameter: { city: 'nonexistent' } });
-    assert(out.title === '三藩市 & 湾区周报');
+    assert(out.title === '三藩市 & 灣區週報');
     contains(out.html, 'SF 精选餐厅');
   });
 
@@ -121,8 +121,8 @@ console.log('\n=== 网页渲染 ===');
 
   check('往期列表按城市隔离：香港只有一期', () => {
     const out = app.doGet({ parameter: { city: 'hk' } });
-    contains(out.html, '09.02 那一周');
-    notContains(out.html, '08.26 那一周', '香港没有 08.26 那一期，不该出现');
+    contains(out.html, '09.02 那一週');
+    notContains(out.html, '08.26 那一週', '香港没有 08.26 那一期，不该出现');
   });
 
   check('?week 指定历史期次可正常回看', () => {
@@ -146,12 +146,12 @@ console.log('\n=== 网页渲染 ===');
   check('精选条目带金色高亮与徽章', () => {
     const out = app.doGet({});
     contains(out.html, 'ticket pick');
-    contains(out.html, '给你挑的');
+    contains(out.html, '給你挑的');
   });
 
   check('核实等级徽章按状态渲染', () => {
     const out = app.doGet({ parameter: { city: 'hk' } });
-    contains(out.html, '未核实', '未核实的条目必须照常展示并标注');
+    contains(out.html, '未核實', '未核实的条目必须照常展示并标注');
   });
 }
 
@@ -163,9 +163,9 @@ console.log('\n=== 空状态 ===');
 
   check('城市还没有任何一期 → 出空状态而不是白屏或空壳', () => {
     const out = app.doGet({ parameter: { city: 'hk' } });
-    assert(out.title === '香港周报');
+    assert(out.title === '香港週報');
     contains(out.html, 'empty-state');
-    contains(out.html, '香港还没有内容');
+    contains(out.html, '香港還沒有內容');
     contains(out.html, '城市');           // 城市 tab 仍在，用户能切回去
     contains(out.html, '?city=sf');
   });
@@ -181,7 +181,7 @@ console.log('\n=== 发信与订阅路由 ===');
   });
 
   check('只订阅 sf 的读者收不到香港那封', () => {
-    const sf = sentMail.filter(m => m.subject.indexOf('湾区') !== -1)[0];
+    const sf = sentMail.filter(m => m.subject.indexOf('灣區') !== -1)[0];
     const hk = sentMail.filter(m => m.subject.indexOf('香港') !== -1)[0];
     assert(sf, '没有发出三藩市那封');
     assert(hk, '没有发出香港那封');
@@ -191,10 +191,24 @@ console.log('\n=== 发信与订阅路由 ===');
     contains(hk.to, 'reader-both@example.com');
   });
 
-  check('三藩市的邮件主题保持原样，现有读者无感', () => {
+  // 主题从简体改成了繁体，是一次有意的变更（读者是香港人），不是回归。
+  // 锁死字面量：主题行任何意外改动都会在这里炸出来。
+  check('邮件主题为繁体，且逐字锁定', () => {
     const sf = sentMail.filter(m => m.to.indexOf('reader-sf') !== -1)[0];
-    assert(sf.subject === '这周的湾区，我给你留了几张票 · 09.02 那一周',
+    assert(sf.subject === '這周的灣區，我給你留了幾張票 · 09.02 那一週',
            '实际: ' + sf.subject);
+    const hk = sentMail.filter(m => m.subject.indexOf('香港') !== -1)[0];
+    assert(hk.subject === '這周的香港，我給你留了幾張票 · 09.02 那一週',
+           '实际: ' + hk.subject);
+  });
+
+  check('邮件正文里没有残留简体的界面文案', () => {
+    sentMail.forEach(m => {
+      const chrome = m.subject + (m.opts && m.opts.htmlBody || '');
+      ['给你挑的', '已核实', '未核实', '周报'].forEach(w => {
+        notContains(chrome, w, '界面文案应为繁体，发现: ' + w);
+      });
+    });
   });
 
   check('邮件链接带 city 参数，点开直达对应城市', () => {
@@ -228,7 +242,7 @@ console.log('\n=== 不发空邮件 ===');
 
   check('没有数据的城市不发信，只发有内容的那个', () => {
     assert(sentMail.length === 1, '应只发 1 封，实际 ' + sentMail.length);
-    contains(sentMail[0].subject, '湾区');
+    contains(sentMail[0].subject, '灣區');
   });
 
   check('sendIssueTo_ 对空城市返回 false', () => {
@@ -263,6 +277,97 @@ console.log('\n=== 配置自洽 ===');
   check('SITE_URL 是 /exec 而不是 /dev', () => {
     assert(/\/exec$/.test(C.SITE_URL) || C.SITE_URL.indexOf('PASTE_YOUR') !== -1,
            'SITE_URL 必须以 /exec 结尾: ' + C.SITE_URL);
+  });
+}
+
+console.log('\n=== 简繁映射 ===');
+// 表格是简体时期建的，代码现在是繁体。读取时做一层枚举映射，
+// 两种写法都要认——否则一个字没对上，那条活动就从页面上悄悄消失了。
+// 上面所有夹具用的都是简体值，能跑通本身就是这一层在生效。
+{
+  const TRAD = [
+    HEADER,
+    row({City:'三藩市灣區', WeekId:'2026-09-02', Zone:'三藩市市內', SubGroup:'吃',
+         Category:'吃', Title:'繁體寫法的活動', DateInfo:'09.09', Location:'SF', Status:'已核實'}),
+  ];
+  check('繁体枚举原样通过', () => {
+    const { app } = makeApp(TRAD);
+    contains(app.doGet({ parameter: { city: 'sf' } }).html, '繁體寫法的活動');
+  });
+
+  check('简体枚举被映射到繁体分区，内容不丢', () => {
+    const { app } = makeApp(FIXTURE);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, 'SF 精选餐厅', '简体 Zone「三藩市市内」应落进「三藩市市內」');
+    contains(html, 'SF 市外活动', '简体 Zone「湾区市外」应落进「灣區市外」');
+  });
+
+  check('简体 Status 映射后拿到正确的核实徽章样式', () => {
+    const { app } = makeApp(FIXTURE);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, 'venue-verified', '「场地已核实」应映射成「場地已核實」并命中样式');
+    notContains(html, '已核实<', '页面上不应再出现未映射的简体状态');
+  });
+
+  check('简繁混排的同一个分区不会被拆成两块', () => {
+    const MIXED = [
+      HEADER,
+      row({City:'香港', WeekId:'2026-09-02', Zone:'港岛', SubGroup:'展',
+           Category:'展', Title:'简体行', DateInfo:'09.05', Location:'中环', Status:'已核实'}),
+      row({City:'香港', WeekId:'2026-09-02', Zone:'港島', SubGroup:'展',
+           Category:'展', Title:'繁體行', DateInfo:'09.06', Location:'中環', Status:'已核實'}),
+    ];
+    const { app } = makeApp(MIXED);
+    const html = app.doGet({ parameter: { city: 'hk' } }).html;
+    contains(html, '简体行'); contains(html, '繁體行');
+    const occurrences = html.split('港島').length - 1;
+    assert(occurrences >= 1, '繁体分区名应出现');
+    notContains(html, '>港岛<', '不应同时渲染出简体分区标题');
+  });
+
+  check('正文不做逐字替换（只映射枚举列）', () => {
+    const { app } = makeApp(FIXTURE);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, 'SF 精选餐厅', '标题是正文，应原样保留，交给 OpenCC 整段转');
+  });
+}
+
+console.log('\n=== 天气模块的静默降级 ===');
+// 关键约束：天气拿不到，页面必须照常渲染。
+// 这里故意不打 CacheService / UrlFetchApp 的桩——它们在 Apps Script 之外
+// 连引用都会抛 ReferenceError，正好模拟「权限还没批下来」的真实状态。
+// 这一组测试写出来的时候就抓到了一个真 bug：weatherFor_ 里
+// CacheService.getScriptCache() 在 try 外面，异常会一路冒到 doGet，整页 500。
+{
+  check('天气服务不可用时，页面照常渲染，不抛异常', () => {
+    const { app } = makeApp(FIXTURE);
+    let html = null;
+    try {
+      html = app.doGet({ parameter: { city: 'sf' } }).html;
+    } catch (e) {
+      assert(false, '天气失败不该炸掉整页: ' + e.message);
+    }
+    contains(html, 'SF 精选餐厅', '活动内容必须还在');
+  });
+
+  check('天气拿不到时不留半截空壳', () => {
+    const { app } = makeApp(FIXTURE);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    notContains(html, '<div class="wx">', '降级应该是整块不渲染，而不是渲染一个空容器');
+    notContains(html, '出門前看一眼', '天气标题不该出现');
+  });
+
+  check('每个城市都配了天气信源，且只用政府源', () => {
+    const { app } = makeApp(FIXTURE);
+    const OK = ['nws', 'hko'];
+    app.CONFIG.CITIES.forEach(c => {
+      assert(c.weather && OK.indexOf(c.weather.provider) !== -1,
+             c.slug + ' 的天气信源不是政府源: ' + JSON.stringify(c.weather));
+      if (c.weather.provider === 'nws') {
+        assert(typeof c.weather.lat === 'number' && typeof c.weather.lon === 'number',
+               c.slug + ' 缺经纬度');
+      }
+    });
   });
 }
 
