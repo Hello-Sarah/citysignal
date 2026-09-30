@@ -37,12 +37,18 @@ const FIXTURE = [
 ];
 
 // ---- 打桩 ----
-function makeApp(sheetValues) {
+function makeApp(sheetValues, initialSentLog) {
+  let sentLog = initialSentLog || null;   // null = SentLog 分頁還不存在
   const sentMail = [];
   const logged = [];
   const stubs = {
     SpreadsheetApp: {
-      openById: () => ({ getSheetByName: () => ({ getDataRange: () => ({ getValues: () => sheetValues }) }) })
+      openById: () => ({
+        getSheetByName: (name) => name === 'SentLog'
+          ? (sentLog ? { getDataRange: () => ({ getValues: () => sentLog }), appendRow: (r) => sentLog.push(r) } : null)
+          : { getDataRange: () => ({ getValues: () => sheetValues }) },
+        insertSheet: () => { sentLog = []; return { getDataRange: () => ({ getValues: () => sentLog }), appendRow: (r) => sentLog.push(r) }; }
+      })
     },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://stub/exec' }) },
     HtmlService: {
@@ -62,7 +68,7 @@ function makeApp(sheetValues) {
   const factory = new Function(...Object.keys(stubs),
     src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG };');
   const app = factory(...Object.values(stubs));
-  return { app, sentMail, logged };
+  return { app, sentMail, logged, getSentLog: () => sentLog };
 }
 
 // ---- 迷你断言 ----
@@ -248,6 +254,44 @@ console.log('\n=== 不发空邮件 ===');
   check('sendIssueTo_ 对空城市返回 false', () => {
     const hk = app.CONFIG.CITIES.filter(c => c.slug === 'hk')[0];
     assert(app.sendIssueTo_('x@example.com', hk) === false);
+  });
+}
+
+console.log('\n=== 同一期不重发 ===');
+{
+  check('第一次发信后在 SentLog 记下每个城市的期次', () => {
+    const { app, getSentLog } = makeApp(FIXTURE);
+    app.sendWeeklyEmail();
+    const log = getSentLog();
+    assert(log && log[0][0] === 'City', 'SentLog 应自动建表头');
+    const rows = log.slice(1).map(r => r[0] + ':' + r[1]).sort();
+    assert(rows.join(',') === 'hk:2026-09-02,sf:2026-09-02', '实际 ' + rows.join(','));
+  });
+
+  check('下周没有新一期时，一封都不发', () => {
+    const { app, sentMail } = makeApp(FIXTURE);
+    app.sendWeeklyEmail();
+    const n = sentMail.length;
+    app.sendWeeklyEmail();
+    assert(sentMail.length === n, '第二次不该再发，实际多发 ' + (sentMail.length - n));
+  });
+
+  check('只有出了新一期的城市才发', () => {
+    const log = [['City','WeekId','SentAt'], ['sf','2026-09-02',''], ['hk','2026-09-02','']];
+    const more = FIXTURE.concat([row({City:'香港', WeekId:'2026-09-09', Zone:'港岛', SubGroup:'展',
+      Category:'展', Title:'HK 新一期', DateInfo:'09.10', Location:'中环', Status:'已核实'})]);
+    const { app, sentMail } = makeApp(more, log);
+    app.sendWeeklyEmail();
+    assert(sentMail.length === 1, '应只发香港 1 封，实际 ' + sentMail.length);
+    contains(sentMail[0].subject, '09.09 那一週');
+  });
+
+  check('预览不受发信记录影响，也不写记录', () => {
+    const log = [['City','WeekId','SentAt'], ['sf','2026-09-02',''], ['hk','2026-09-02','']];
+    const { app, sentMail, getSentLog } = makeApp(FIXTURE, log);
+    app.previewWeeklyEmail();
+    assert(sentMail.length === 2, '预览应照发');
+    assert(getSentLog().length === 3, '预览不该写记录');
   });
 }
 

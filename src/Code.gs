@@ -572,8 +572,26 @@ function sendWeeklyEmail() {
       .filter(r => r && r.email && (r.cities || []).indexOf(city.slug) !== -1)
       .map(r => r.email);
     if (!subs.length) return;                        // 沒人訂閲這個城市
-    if (!sendIssueTo_(subs.join(','), city)) return; // 該城市還沒有任何一期
-    sent.push(city.label + ' -> ' + subs.join(', '));
+
+    // 同一期只發一次。以前每週三都發「最新一期」，停刊期間讀者會反覆收到同一封舊郵件。
+    // 發信記錄寫在 Sheet 的 SentLog 分頁：不用 PropertiesService，是因為那要多申請一個
+    // OAuth 範圍，重新授權之前觸發器會直接失敗——而 Sheet 的寫權限本來就有。
+    const latest = getSortedWeekIds_(readAllEvents_(), city)[0];
+    let last = '';
+    try { last = lastSentWeek_(city); } catch (err) {
+      Logger.log('讀取發信記錄失敗，照舊發送：' + err);   // 寧可多發一封，不能漏發
+    }
+    if (latest && last && latest <= last) {
+      Logger.log(city.label + '：' + latest + ' 已經發過，本週不重發');
+      return;
+    }
+
+    const week = sendIssueTo_(subs.join(','), city);
+    if (!week) return;                               // 該城市還沒有任何一期
+    try { recordSent_(city, week); } catch (err) {
+      Logger.log('寫發信記錄失敗（郵件已發出）：' + err);
+    }
+    sent.push(city.label + ' ' + week + ' -> ' + subs.join(', '));
   });
   if (!sent.length) {
     Logger.log('沒有任何郵件被髮出：檢查 CONFIG.RECIPIENTS 的訂閲設置，或該城市是否已有數據');
@@ -600,7 +618,34 @@ function previewWeeklyEmail() {
              '；覆蓋城市: ' + done.join('、') + '（未發給正式收件人）');
 }
 
-// 返回 true = 真的發了；false = 該城市還沒有任何一期，什麼也沒發。
+// ---- 發信記錄（SentLog 分頁）----
+// 只記城市 slug、期次、時間，不記收件人地址。預覽不記錄。
+var SENT_LOG_TAB_ = 'SentLog';
+
+function sentLogSheet_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  let sh = ss.getSheetByName(SENT_LOG_TAB_);
+  if (!sh) {
+    sh = ss.insertSheet(SENT_LOG_TAB_);
+    sh.appendRow(['City', 'WeekId', 'SentAt']);
+  }
+  return sh;
+}
+
+function lastSentWeek_(city) {
+  const rows = sentLogSheet_().getDataRange().getValues().slice(1);
+  const weeks = rows
+    .filter(r => cellToString_(r[0]) === city.slug)
+    .map(r => cellToString_(r[1]))
+    .filter(w => w);
+  return weeks.sort().pop() || '';
+}
+
+function recordSent_(city, week) {
+  sentLogSheet_().appendRow([city.slug, week, new Date()]);
+}
+
+// 返回發出的期次（如 '2026-09-30'）；false = 該城市還沒有任何一期，什麼也沒發。
 // 刻意不發空郵件：一封「本週沒有內容」的郵件對讀者是噪音，
 // 而且會讓「收到郵件 = 有新內容」這個約定失效。
 function sendIssueTo_(toAddress, city) {
@@ -681,7 +726,7 @@ function sendIssueTo_(toAddress, city) {
     htmlBody: htmlBody,
     name: CONFIG.SENDER_NAME
   });
-  return true;
+  return latestWeek;
 }
 
 // 郵件裏的單條活動，做成和網頁一致的「車票存根」樣式。
