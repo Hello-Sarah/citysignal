@@ -371,6 +371,79 @@ console.log('\n=== 天气模块的静默降级 ===');
   });
 }
 
+// ---- 暂停期次 ----
+console.log('\n[暂停期次]');
+{
+  const PFIX = FIXTURE.concat([
+    row({City:'三藩市湾区', WeekId:'2026-09-30', Zone:'三藩市市内', SubGroup:'玩',
+         Category:'玩', Title:'恢复后第一期', DateInfo:'10.02', Location:'SF', Status:'已核实'}),
+  ]);
+  const setPauses = (app) => {
+    app.CONFIG.PAUSES = [
+      { city: 'sf', weeks: ['2026-09-09', '2026-09-16', '2026-09-23'],
+        reason: '編輯出差', reasonEn: 'the editor was travelling for work' },
+      { city: 'hk', weeks: ['2026-09-16'], reason: '編輯出差', reasonEn: 'x' }
+    ];
+  };
+
+  check('暂停周出现在侧边栏、标「暫停」、且不是链接', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, '09.16 那一週<span class="paused-tag">暫停</span>');
+    notContains(html, 'week=2026-09-16', '暂停周不应可点');
+  });
+
+  check('侧边栏按日期混排：09.30 > 暂停三周 > 09.02', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    const order = ['09.30 那一週', '09.23 那一週', '09.16 那一週', '09.09 那一週', '09.02 那一週']
+      .map(s => html.indexOf(s));
+    assert(order.every(i => i !== -1), '五个期次都应出现');
+    assert(order.every((v, i) => i === 0 || v > order[i - 1]), '顺序不对: ' + order);
+  });
+
+  check('恢复后第一期顶部写明暂停区间、期数和原因（中英）', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, '09.09–09.23（共 3 期）因編輯出差暫停更新');
+    contains(html, 'Paused Sep 9 – Sep 23 (3 issues) while the editor was travelling for work');
+  });
+
+  check('暂停说明只在紧接暂停的那一期出现', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    const html = app.doGet({ parameter: { city: 'sf', week: '2026-09-02' } }).html;
+    notContains(html, 'class="pause-notice"');
+  });
+
+  check('暂停只作用于自己的城市', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    const html = app.doGet({ parameter: { city: 'hk' } }).html;
+    notContains(html, '09.09 那一週');
+    contains(html, '09.16 那一週<span class="paused-tag">暫停</span>');
+  });
+
+  check('已有数据的周即使被登记为暂停，也按正常期次显示', () => {
+    const { app } = makeApp(PFIX); setPauses(app);
+    app.CONFIG.PAUSES[0].weeks.push('2026-09-30');
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, '恢复后第一期');
+    notContains(html, '09.30 那一週<span class="paused-tag">');
+  });
+
+  check('没配置 PAUSES 时页面照常', () => {
+    const { app } = makeApp(PFIX); delete app.CONFIG.PAUSES;
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    notContains(html, 'class="paused-tag"'); contains(html, '恢复后第一期');
+  });
+
+  check('暂停不影响发信：仍发最新一期', () => {
+    const { app, sentMail } = makeApp(PFIX); setPauses(app);
+    app.sendWeeklyEmail();
+    const sf = sentMail.filter(m => m.subject.indexOf('灣區') !== -1)[0];
+    assert(sf && sf.subject.indexOf('09.30 那一週') !== -1, '应发 09.30 那期');
+  });
+}
+
 console.log('\n=== 结果 ===');
 console.log('通过 ' + pass + '    失败 ' + fail);
 process.exit(fail ? 1 : 0);

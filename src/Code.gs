@@ -68,7 +68,19 @@ const CONFIG = {
   // 正式收件人在 RECIPIENTS 裏，預覽不會發給他們。
   PREVIEW_ALSO: ['you@example.com', 'reader-both@example.com'],
   // 兜底頁面標題：僅在城市配置裏沒寫 siteTitle 時使用
-  SITE_TITLE: '本地活動週報'
+  SITE_TITLE: '本地活動週報',
+
+  // ---- 暫停期次 ----
+  // 某幾週沒出刊時，在這裏登記。頁面側邊欄會把這幾週列出來並標「暫停」，
+  // 恢復後的第一期頂部會寫明暫停了多久、為什麼。
+  // 不登記的話，側邊欄只是少了幾個日期——看的人分不清是暫停還是停更了。
+  // weeks 填該城市「本該出刊」的週三日期；reason / reasonEn 會原樣顯示在頁面上。
+  PAUSES: [
+    { city: 'sf', weeks: ['2026-09-09', '2026-09-16', '2026-09-23'],
+      reason: '編輯出差', reasonEn: 'the editor was travelling for work' },
+    { city: 'hk', weeks: ['2026-09-16', '2026-09-23'],
+      reason: '編輯出差', reasonEn: 'the editor was travelling for work' }
+  ]
 };
 
 // ============================================================
@@ -277,6 +289,49 @@ function getSortedWeekIds_(data, city) {
 }
 
 // ============================================================
+// 暫停期次
+// ============================================================
+// 返回 { weekId: pause } —— 該城市登記過的暫停週。
+// 已經有數據的週不算暫停（數據優先，防止登記錯了把真實的一期蓋掉）。
+function pausedWeeksFor_(city, weekIds) {
+  const map = {};
+  if (!city) return map;
+  (CONFIG.PAUSES || []).forEach(p => {
+    if (!p || p.city !== city.slug) return;
+    (p.weeks || []).forEach(w => {
+      if (w && weekIds.indexOf(w) === -1) map[w] = p;
+    });
+  });
+  return map;
+}
+
+// 恢復後的第一期：找出「上一期」和「這一期」之間所有登記過的暫停週，
+// 在頁面頂部寫明。只在緊接暫停的那一期顯示，更早或更晚的期次不打擾。
+function renderPauseNotice_(selectedWeek, weekIds, paused) {
+  if (!selectedWeek) return '';
+  const idx = weekIds.indexOf(selectedWeek);
+  const prev = weekIds[idx + 1] || '';            // weekIds 是新→舊
+  const gap = Object.keys(paused)
+    .filter(w => w < selectedWeek && w > prev)
+    .sort();
+  if (!gap.length) return '';
+
+  const p = paused[gap[gap.length - 1]];
+  const md = w => { const s = w.split('-'); return s[1] + '.' + s[2]; };
+  const range = gap.length === 1 ? md(gap[0]) : md(gap[0]) + '–' + md(gap[gap.length - 1]);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const en = w => { const s = w.split('-'); return months[Number(s[1]) - 1] + ' ' + Number(s[2]); };
+  const rangeEn = gap.length === 1 ? en(gap[0]) : en(gap[0]) + ' – ' + en(gap[gap.length - 1]);
+  const n = gap.length;
+
+  return `
+  <div class="pause-notice">
+    <div class="pause-zh">${esc_(range)}（共 ${n} 期）因${esc_(p.reason || '')}暫停更新，本期起恢復每週更新。</div>
+    <div class="pause-en">Paused ${esc_(rangeEn)} (${n} issue${n > 1 ? 's' : ''})${p.reasonEn ? ' while ' + esc_(p.reasonEn) : ''}. Weekly updates resume with this issue.</div>
+  </div>`;
+}
+
+// ============================================================
 // 渲染整個網頁（含側邊欄歷史週報）
 // ============================================================
 function renderPage_(data, city, weekIds, selectedWeek) {
@@ -291,7 +346,14 @@ function renderPage_(data, city, weekIds, selectedWeek) {
     return `<a class="city-tab ${active}" href="${baseUrl}?city=${encodeURIComponent(c.slug)}">${esc_(c.label)}</a>`;
   }).join('');
 
-  const sidebarHtml = weekIds.map(w => {
+  // 側邊欄：已出刊的期次 + 登記過的暫停週，按日期混排（新→舊）。
+  // 暫停週不是鏈接——那一週沒有內容可看，但要讓人看見「這裏是暫停，不是斷更」。
+  const paused = pausedWeeksFor_(city, weekIds);
+  const allWeeks = weekIds.concat(Object.keys(paused)).sort().reverse();
+  const sidebarHtml = allWeeks.map(w => {
+    if (paused[w]) {
+      return `<span class="week-link paused" title="${esc_(paused[w].reason || '')}">${formatWeekLabel_(w)}<span class="paused-tag">暫停</span></span>`;
+    }
     const active = w === selectedWeek ? 'active' : '';
     return `<a class="week-link ${active}" href="${baseUrl}?city=${encodeURIComponent(citySlug)}&week=${encodeURIComponent(w)}">${formatWeekLabel_(w)}</a>`;
   }).join('');
@@ -333,6 +395,7 @@ function renderPage_(data, city, weekIds, selectedWeek) {
       <div class="eyebrow">${esc_((city && city.eyebrow) || '')}</div>
       <h1>${selectedWeek ? formatWeekLabel_(selectedWeek) : esc_((city && city.label) || '')}</h1>
     </header>
+    ${renderPauseNotice_(selectedWeek, weekIds, paused)}
     ${selectedWeek ? renderWeather_(city) : ''}
     ${bodyHtml}
   </main>
@@ -425,6 +488,13 @@ const PAGE_CSS_ = `
     color:var(--ink-soft);text-decoration:none;font-size:13px;font-family:'IBM Plex Mono',monospace;}
   .week-link.active{background:var(--paper);color:var(--ink);font-weight:600;}
   .week-link:hover{background:rgba(255,255,255,0.4);}
+  .week-link.paused{color:var(--fog-dark);opacity:.75;cursor:default;}
+  .week-link.paused:hover{background:none;}
+  .paused-tag{margin-left:6px;font-size:10px;padding:1px 5px;border-radius:8px;
+    border:1px solid var(--fog-dark);vertical-align:1px;}
+  .pause-notice{margin:-12px 0 26px;padding:12px 16px;background:rgba(242,236,220,.7);
+    border-left:3px solid var(--gold);border-radius:3px;font-size:13px;line-height:1.6;}
+  .pause-en{color:var(--fog-dark);font-size:12px;margin-top:2px;}
   .wx{margin:0 0 34px;padding:16px 18px;background:var(--paper);border-radius:4px;
     border:1px solid var(--paper-shadow);}
   .wx-head{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;
