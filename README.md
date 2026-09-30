@@ -3,8 +3,8 @@
 A weekly, source-verified events digest for one specific reader — delivered as a public web page
 plus a scheduled email. Built on Google Apps Script + Google Sheets, zero infrastructure cost.
 
-> 每周为一个具体的人整理一份**标注了可信度**的湾区活动清单，
-> 自动生成公开网页 + 每周三定时邮件。
+> Every week, a hand-curated list of local events for one specific person, each **labelled with
+> how far it can be trusted** — published automatically as a public web page plus a Wednesday email.
 
 ---
 
@@ -21,9 +21,9 @@ Every entry carries one of three verification levels:
 
 | Badge | Criterion |
 |---|---|
-| `已核实` **Verified** | Confirmed by an official source — `.gov`, venue site, or organizer's own page |
-| `场地已核实` **Venue verified** | Address confirmed real, but event details only appear on aggregators |
-| `未核实` **Unverified** | No independent source found (typical for small community events) |
+| **Verified** | Confirmed by an official source — `.gov`, venue site, or organizer's own page |
+| **Venue verified** | Address confirmed real, but event details only appear on aggregators |
+| **Unverified** | No independent source found (typical for small community events) |
 
 **Unverified entries are still published.** Dropping them would systematically filter out exactly
 the community-organized events the reader most wants and can least easily find elsewhere.
@@ -36,8 +36,8 @@ The rule is: *keep the content, never fake the confidence.* The reader decides.
 | Path | |
 |---|---|
 | [`src/Code.gs`](src/Code.gs) | The whole application — ~300 lines of Apps Script (sanitized; fill in `CONFIG`) |
-| [`docs/功能文档.md`](docs/功能文档.md) | Product spec, **testing & evaluation**, defect log |
-| [`docs/技术文档.md`](docs/技术文档.md) | Architecture, design decisions, deployment, security |
+| [Product spec](docs/%E5%8A%9F%E8%83%BD%E6%96%87%E6%A1%A3.md) | Product spec, **testing & evaluation**, defect log |
+| [Technical design](docs/%E6%8A%80%E6%9C%AF%E6%96%87%E6%A1%A3.md) | Architecture, design decisions, deployment, security |
 | [`data/schema.md`](data/schema.md) | The 12-column data contract |
 | [`data/sample_events.tsv`](data/sample_events.tsv) | Sanitized sample issue |
 | [`tests/validate_data.py`](tests/validate_data.py) | Runnable data validator, 10 rule classes |
@@ -79,7 +79,7 @@ node tests/render_test.js                                # → 21 passed, exit 0
 ```
 
 The validator enforces 8 rule classes and also reports the **verification rate** per issue
-(`已核实 / total`) — the closest thing this project has to an accuracy metric.
+(`verified / total`) — the closest thing this project has to an accuracy metric.
 
 | Issue | Entries | Verified | Venue-verified | Unverified | Rate |
 |---|---|---|---|---|---|
@@ -91,7 +91,7 @@ What matters is that unverified entries are labelled honestly and source conflic
 
 Two of the regression fixtures encode **real production bugs**:
 a `SubGroup == Title` case that printed every event title twice, and a WeChat ID in the `MapLink`
-column that rendered a 404-bound button. Full defect log in the 功能文档.
+column that rendered a 404-bound button. Full defect log in the [product spec](docs/%E5%8A%9F%E8%83%BD%E6%96%87%E6%A1%A3.md).
 
 ---
 
