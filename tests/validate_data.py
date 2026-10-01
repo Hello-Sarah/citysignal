@@ -36,6 +36,10 @@ TIME_COLS = ["StartAt", "EndAt"]
 IMAGE_COLS = ["Image", "ImageCredit"]
 HEADER_FULL = HEADER + TIME_COLS
 HEADER_IMG = HEADER_FULL + IMAGE_COLS
+# 报名/购票/官网链接，选填：官方链接 + 按钮类型
+LINK_COLS = ["Link", "LinkType"]
+HEADER_LINK = HEADER_IMG + LINK_COLS
+LINK_TYPES = {"购票", "报名", "预约", "订位", "官网"}
 WALLTIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$")
 
 # 分区是按城市定的：每个城市有自己的一套 Zone。
@@ -84,7 +88,7 @@ def check_header(rows, rep):
         rep.error(0, "-", "文件为空")
         return False
     head = [c.strip() for c in rows[0]]
-    if head in (HEADER, HEADER_FULL, HEADER_IMG):
+    if head in (HEADER, HEADER_FULL, HEADER_IMG, HEADER_LINK):
         return True
     # 允许缺少末尾的 Pick 列（旧版数据）
     if head == HEADER[:-1]:
@@ -102,19 +106,32 @@ def check_rows(rows, rep):
     ncol = len(HEADER)
     weekids = set()
     head = [c.strip() for c in rows[0]]
-    has_time = head in (HEADER_FULL, HEADER_IMG)
-    has_img = head == HEADER_IMG
+    has_time = head in (HEADER_FULL, HEADER_IMG, HEADER_LINK)
+    has_img = head in (HEADER_IMG, HEADER_LINK)
+    has_link = head == HEADER_LINK
     seen_titles = {}
 
     for i, raw in enumerate(rows[1:], start=2):
         if not any(c.strip() for c in raw):
             continue  # 跳过纯空行
 
-        cols = HEADER_IMG if has_img else HEADER_FULL if has_time else HEADER
+        cols = HEADER_LINK if has_link else HEADER_IMG if has_img else HEADER_FULL if has_time else HEADER
         if not (ncol - 1 <= len(raw) <= len(cols)):
             rep.error(i, "-", f"列数为 {len(raw)}，期望 {ncol}–{len(cols)}")
             continue
         r = dict(zip(cols, list(raw) + [""] * (len(cols) - len(raw))))
+
+        # 0b) 报名/购票链接：只收 https；类型必须在枚举里
+        if has_link:
+            ln, lt = r["Link"].strip(), r["LinkType"].strip()
+            if ln and not ln.lower().startswith("https://"):
+                rep.error(i, "Link", f"只接受 https 链接，实际 {ln[:40]!r}")
+            if lt and lt not in LINK_TYPES:
+                rep.error(i, "LinkType", f"只能是 {sorted(LINK_TYPES)}，实际 {lt!r}")
+            if lt and not ln:
+                rep.error(i, "Link", "写了 LinkType 却没有 Link")
+            if not ln:
+                rep.warn(i, "Link", "没有报名/购票/官网链接")
 
         # 0a) 配图：只收 https；有图必须写来源
         if has_img:

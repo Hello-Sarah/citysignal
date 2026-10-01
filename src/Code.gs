@@ -351,9 +351,10 @@ var ENUM_S2T_ = {
   '半岛': '半島', '南湾': '南灣', '东湾': '東灣', '北湾': '北灣',
   '喜剧': '喜劇', '音乐': '音樂', '讲座': '講座', '读书': '讀書',
   '艺术': '藝術', '戏剧': '戲劇', '电影': '電影', '节庆': '節慶',
-  '运动': '運動', '亲子': '親子', '农夫市集': '農夫市集'
+  '运动': '運動', '亲子': '親子', '农夫市集': '農夫市集',
+  '购票': '購票', '报名': '報名', '预约': '預約', '订位': '訂位', '官网': '官網'
 };
-var ENUM_COLUMNS_ = ['City', 'Zone', 'SubGroup', 'Category', 'Status'];
+var ENUM_COLUMNS_ = ['City', 'Zone', 'SubGroup', 'Category', 'Status', 'LinkType'];
 
 function normalizeEnum_(v) {
   return Object.prototype.hasOwnProperty.call(ENUM_S2T_, v) ? ENUM_S2T_[v] : v;
@@ -392,7 +393,7 @@ function readAllEvents_() {
     return obj;
   });
   // 期望的列（表頭）：
-  // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick | StartAt | EndAt
+  // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick | StartAt | EndAt | Image | ImageCredit | Link | LinkType
   // StartAt / EndAt 選填：填了才出「加入日曆」按鈕。格式 2026-10-02 13:00（定時）或 2026-10-02（全天）
   // City 填 CONFIG.CITIES 裏的 label（如「三藩市灣區」「香港」）
   // Pick 列填任意非空值（建議 ★）= 標記為「給你挑的」，會在頁面上高亮
@@ -720,10 +721,34 @@ function renderTicket_(item, ctx) {
         <span class="status-badge ${statusClass}">${esc_(statusLabel)}</span>
         ${hasMap ? `<a class="map-link" href="${esc_(mapUrl)}" target="_blank" rel="noopener">在地圖中查看 →</a>` : ''}
       </div>
+      ${renderActionLink_(item)}
       ${renderCalendarLinks_(item, ctx)}
       ${item.Note ? `<div class="note">${esc_(item.Note)}</div>` : ''}
     </div>
   </div>`;
+}
+
+// ============================================================
+// 報名 / 購票 / 官網 按鈕
+// ============================================================
+// Link 列：主辦方 / 場館官網或官方票務平台的鏈接；LinkType 列決定按鈕文字。
+// 只認 https，和地圖、配圖一樣。沒填 LinkType 時按「官網」處理。
+var LINK_LABELS_ = {
+  '購票': '購票', '報名': '報名', '預約': '免費預約', '訂位': '訂位', '官網': '活動官網'
+};
+function emailActionLink_(d) {
+  const url = String(d.Link || '').trim();
+  if (!/^https:\/\//i.test(url)) return '';
+  const label = LINK_LABELS_[String(d.LinkType || '').trim()] || LINK_LABELS_['官網'];
+  return `&nbsp;&nbsp;<a href="${esc_(url)}" style="font-family:'Courier New',monospace;font-size:11px;color:#1e2830;">${esc_(label)} →</a>`;
+}
+function renderActionLink_(item) {
+  const url = String(item.Link || '').trim();
+  if (!/^https:\/\//i.test(url)) return '';
+  const type = String(item.LinkType || '').trim();
+  const label = LINK_LABELS_[type] || LINK_LABELS_['官網'];
+  const primary = type && type !== '官網';
+  return `<div class="act-row"><a class="act-link${primary ? ' primary' : ''}" href="${esc_(url)}" target="_blank" rel="noopener">${esc_(label)} →</a></div>`;
 }
 
 // ============================================================
@@ -833,6 +858,12 @@ const PAGE_CSS_ = `
   .cal-link{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);text-decoration:none;
     padding:2px 9px;border:1px solid var(--paper-shadow);border-radius:12px;background:rgba(255,255,255,.35);}
   .cal-link:hover{background:#fff;}
+  .act-row{margin-top:10px;}
+  .act-link{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);
+    text-decoration:none;padding:5px 14px;border:1.5px solid var(--ink);border-radius:4px;letter-spacing:.04em;}
+  .act-link:hover{background:#fff;}
+  .act-link.primary{background:var(--ink);color:var(--paper);}
+  .act-link.primary:hover{opacity:.85;background:var(--ink);}
   .media{position:relative;flex:0 0 170px;order:3;background:#e9e2d0;overflow:hidden;
     border-left:2px dashed var(--paper-shadow);}
   .media img{display:block;width:100%;height:100%;object-fit:cover;min-height:130px;}
@@ -1126,6 +1157,7 @@ function renderMailItem_(d) {
           ${d.PriceInfo ? `<span style="font-family:Georgia,serif;font-size:11px;color:#5a5449;">${esc_(d.PriceInfo)}</span>&nbsp;&nbsp;` : ''}
           <span style="font-family:'Courier New',monospace;font-size:10px;color:${statusColor};
             border:1px solid ${statusColor};padding:1px 5px;">${esc_(status || '未核實')}</span>
+          ${emailActionLink_(d)}
         </div>
       </td>
     </tr>

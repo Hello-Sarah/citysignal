@@ -90,7 +90,7 @@ function makeApp(sheetValues, initialSentLog, http) {
   };
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
   const factory = new Function(...Object.keys(stubs),
-    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_, importApprovedIssues_, importIssuesNow, nwsToDays_, translateNws_, hkoKind_, renderMedia_ };');
+    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_, importApprovedIssues_, importIssuesNow, nwsToDays_, translateNws_, hkoKind_, renderMedia_, renderActionLink_, emailActionLink_, normalizeEnum_ };');
   const app = factory(...Object.values(stubs));
   return { app, sentMail, logged, getSentLog: () => sentLog };
 }
@@ -500,6 +500,42 @@ console.log('\n=== 天气中文化与图标 ===');
   check('天气块里有图标', () => {
     const html = app.doGet({ parameter: { city: 'sf' } }).html;
     contains(html, '.wx-icon');
+  });
+}
+
+console.log('\n=== 报名 / 购票按钮 ===');
+{
+  const { app } = makeApp(FIXTURE);
+  check('购票：实心按钮，新窗口打开', () => {
+    const h = app.renderActionLink_({ Link: 'https://www.sfmoma.org/exhibition/x/', LinkType: '購票' });
+    contains(h, 'href="https://www.sfmoma.org/exhibition/x/"');
+    contains(h, '購票 →');
+    contains(h, 'act-link primary');
+    contains(h, 'target="_blank"');
+  });
+  check('官网 / 没写类型：显示「活動官網」，空心按钮', () => {
+    [ '官網', '' ].forEach(t => {
+      const h = app.renderActionLink_({ Link: 'https://a.org/', LinkType: t });
+      contains(h, '活動官網 →');
+      notContains(h, 'primary');
+    });
+  });
+  check('订位 / 预约文案', () => {
+    contains(app.renderActionLink_({ Link: 'https://a.org/', LinkType: '訂位' }), '訂位 →');
+    contains(app.renderActionLink_({ Link: 'https://a.org/', LinkType: '預約' }), '免費預約 →');
+  });
+  check('非 https 链接不渲染', () => {
+    ['', 'http://a.org', 'javascript:alert(1)'].forEach(v => assert(app.renderActionLink_({ Link: v, LinkType: '購票' }) === '', v));
+  });
+  check('链接里的引号被转义', () => {
+    notContains(app.renderActionLink_({ Link: 'https://a.org/"onmouseover="x', LinkType: '購票' }), '"onmouseover="x');
+  });
+  check('简体类型读表时转繁体', () => {
+    assert(app.normalizeEnum_('购票') === '購票' && app.normalizeEnum_('订位') === '訂位');
+  });
+  check('邮件里也有链接', () => {
+    contains(app.emailActionLink_({ Link: 'https://a.org/t', LinkType: '購票' }), '購票 →');
+    assert(app.emailActionLink_({ Link: '' }) === '');
   });
 }
 

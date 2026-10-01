@@ -42,13 +42,14 @@ Drop anything whose 2026 date cannot be confirmed anywhere. Known-good HK source
 `data/issues/<WeekId>.tsv`, UTF-8, tab-separated, this exact header:
 
 ```
-City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick	StartAt	EndAt	Image	ImageCredit
+City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick	StartAt	EndAt	Image	ImageCredit	Link	LinkType
 ```
 
 - Enum columns use the simplified spellings above; free text (Title, DateInfo, PriceInfo, Note) in Traditional Chinese.
 - `MapLink` = `https://www.google.com/maps/search/?api=1&query=` + URL-encoded location.
 - `Note` ends with the source domain, e.g. `sfmoma.org官方`, `info.gov.hk政府`, `2026日期僅聚合站有·funcheap`.
 - `StartAt` / `EndAt` (local wall time): `2026-10-08 18:00` for timed events, `2026-10-09` for all-day; multi-day festivals use all-day start/end. Leave both empty for long-running exhibitions, restaurants and recurring markets. Unknown end time → leave `EndAt` empty (defaults to 2 h).
+- `Link` / `LinkType`: the one link a reader should click — the ticket page, the registration/RSVP/reservation page, or the official event page if it is free walk-in. Only the organizer's / venue's / government's own site, or the official ticketing platform their site links to (Ticketmaster, AXS, organizer-run Eventbrite, SevenRooms/Resy/Tock, URBTIX, Cityline, HK Ticketing). Never aggregators. `LinkType` is one of `购票` (buy tickets), `报名` (register/RSVP), `预约` (free reservation), `订位` (restaurant booking), `官网` (info only). Every row should have a Link.
 - `Image` / `ImageCredit`: the **official** page's share image (its `og:image`, or `twitter:image`) and the domain it came from, e.g. `sfmoma.org`. Only from the organizer's / venue's / government's own site — never from aggregators or news sites. Skip site-wide logos and generic brand graphics. Must be a real **photograph** (no logos, cartoons, icons or text-only posters). If the event has no usable photo, use a photo of the venue from its official site, or a Wikimedia Commons photo of the venue/area (direct `upload.wikimedia.org/.../1280px-...` URL, credit `commons.wikimedia.org`). Every row should have one; if truly nothing exists, leave both empty and the card simply shows no picture (there is no cartoon fallback).
 - No tabs or newlines inside fields; no field may start with `=`, `+` or `@`.
 
