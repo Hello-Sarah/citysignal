@@ -729,44 +729,18 @@ function renderTicket_(item, ctx) {
 // ============================================================
 // 活動配圖
 // ============================================================
-// Image 列：主辦方 / 場館官網的分享圖（og:image），ImageCredit 列：圖片來源網域。
-// 有圖就顯示官方圖並註明來源；沒有圖、或圖片載入失敗，就顯示按類別畫的插圖。
+// Image 列：主辦方 / 場館官網的照片（og:image），或 Wikimedia Commons 的場地實景照；
+// ImageCredit 列：圖片來源網域。只用真實照片，不用卡通插圖：
+// 沒有圖就不顯示配圖區；圖片載入失敗也直接把配圖區拿掉，卡片自動撐滿。
 // 只認 https 開頭的鏈接——和地圖按鈕一樣，防止表格裏填了別的東西。
-var ILLO_ = (function () {
-  // 插圖按比例縮放放在中間（meet），底色鋪滿整個配圖區，卡片多高都不會把圖裁壞
-  const box = (bg, inner) => '<div class="illo-bg" style="background:' + bg + '">' +
-    '<svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
-    '<g fill="none" stroke="#1e2a32" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' + inner + '</g></svg></div>';
-  return {
-    '吃': box('#ead9c0', '<path d="M46 66h68a34 34 0 0 1-68 0z" fill="#f7f1e3"/><path d="M40 66h80"/>' +
-      '<path d="M66 54c-4-6 4-10 0-16M80 54c-4-6 4-10 0-16M94 54c-4-6 4-10 0-16" stroke="#a94e29"/>'),
-    '展': box('#dfe5e2', '<rect x="48" y="30" width="64" height="56" fill="#f7f1e3"/><rect x="56" y="38" width="48" height="40"/>' +
-      '<path d="M60 74l14-16 10 10 6-6 10 12" stroke="#5c7a52"/><circle cx="92" cy="48" r="4" fill="#a9812c" stroke="none"/>'),
-    '玩': box('#e6dccb', '<path d="M80 26l8 16 18 3-13 12 3 18-16-9-16 9 3-18-13-12 18-3z" fill="#e3b448"/>' +
-      '<path d="M40 92c14-8 26 8 40 0s26 8 40 0" stroke="#a94e29"/>'),
-    '演': box('#e4d6cf', '<path d="M30 24h100v8H30z" fill="#a94e29"/><path d="M34 32c0 28 8 50 26 64M126 32c0 28-8 50-26 64" fill="#d9b8a6"/>' +
-      '<ellipse cx="80" cy="92" rx="22" ry="6" fill="#f7f1e3"/><path d="M80 32v50"/>'),
-    '音樂': box('#dde3e6', '<path d="M68 82V40l38-8v42"/><circle cx="60" cy="82" r="9" fill="#1e2a32"/><circle cx="98" cy="74" r="9" fill="#1e2a32"/>'),
-    '講座': box('#e2e0d4', '<path d="M40 34h80v42H76l-14 14V76H40z" fill="#f7f1e3"/><path d="M54 48h52M54 60h36"/>'),
-    '讀書': box('#e8dfcd', '<path d="M80 40c-12-8-28-8-40-4v52c12-4 28-4 40 4 12-8 28-8 40-4V36c-12-4-28-4-40 4z" fill="#f7f1e3"/><path d="M80 40v52"/>'),
-    '集市': box('#e7dccc', '<path d="M36 46h88l-8-16H44z" fill="#a94e29"/><path d="M36 46c0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0" fill="#f7f1e3"/>' +
-      '<path d="M44 56v36M116 56v36M40 92h80"/><circle cx="68" cy="80" r="6" fill="#e3b448"/><circle cx="88" cy="80" r="6" fill="#5c7a52"/>'),
-    '喜劇': box('#ece0c8', '<circle cx="80" cy="60" r="30" fill="#f7f1e3"/><path d="M66 54h2M92 54h2"/><path d="M64 68c8 10 24 10 32 0"/>'),
-    '文化': box('#e9d7c6', '<path d="M80 24v10"/><path d="M64 34h32"/><path d="M60 40c0-6 40-6 40 0v36c0 6-40 6-40 0z" fill="#d9583a"/>' +
-      '<path d="M60 52h40M60 64h40" stroke="#a94e29"/><path d="M64 82h32"/><path d="M80 82v14" stroke="#a9812c"/>')
-  };
-})();
-
 function renderMedia_(item) {
-  const illo = ILLO_[item.Category] || ILLO_['玩'];
   const img = String(item.Image || '').trim();
-  if (!/^https:\/\//i.test(img)) return `<div class="media fallback"><div class="illo">${illo}</div></div>`;
+  if (!/^https:\/\//i.test(img)) return '';
   const credit = String(item.ImageCredit || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   return `
     <div class="media">
       <img src="${esc_(img)}" alt="" loading="lazy" referrerpolicy="no-referrer"
-           onerror="this.parentNode.className='media fallback'">
-      <div class="illo">${illo}</div>
+           onerror="this.parentNode.remove()">
       ${credit ? `<a class="credit" href="https://${esc_(credit)}" target="_blank" rel="noopener">圖片 · ${esc_(credit)}</a>` : ''}
     </div>`;
 }
@@ -862,22 +836,15 @@ const PAGE_CSS_ = `
   .media{position:relative;flex:0 0 170px;order:3;background:#e9e2d0;overflow:hidden;
     border-left:2px dashed var(--paper-shadow);}
   .media img{display:block;width:100%;height:100%;object-fit:cover;min-height:130px;}
-  .media .illo{display:none;width:100%;height:100%;}
-  .media .illo .illo-bg{width:100%;height:100%;min-height:130px;display:flex;align-items:center;justify-content:center;}
-  .media .illo svg{display:block;width:96%;max-height:150px;}
-  .media.fallback img{display:none;}
-  .media.fallback .illo{display:block;}
   .media .credit{position:absolute;left:0;right:0;bottom:0;padding:3px 7px;font-size:9.5px;
     font-family:'IBM Plex Mono',monospace;color:#fff;text-decoration:none;
     background:linear-gradient(transparent,rgba(20,30,38,.65));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .media.fallback .credit{display:none;}
   .ticket.pick .media{border-left-color:var(--gold);}
   @media(max-width:700px){
     .ticket{flex-wrap:wrap;}
     .media{flex:0 0 100%;order:-1;height:150px;border-left:0;border-bottom:2px dashed var(--paper-shadow);}
-    .media img,.media .illo .illo-bg{min-height:0;height:150px;}
-    .media .illo svg{width:auto;height:120px;}
-    .layout{flex-direction:column;}
+    .media img{min-height:0;height:150px;}
+      .layout{flex-direction:column;}
     .sidebar{padding:20px 16px 0;}
     .sidebar-title{margin-top:0;}
     .city-tabs{overflow-x:auto;margin-bottom:16px;}

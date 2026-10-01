@@ -49,7 +49,7 @@ City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapL
 - `MapLink` = `https://www.google.com/maps/search/?api=1&query=` + URL-encoded location.
 - `Note` ends with the source domain, e.g. `sfmoma.org官方`, `info.gov.hk政府`, `2026日期僅聚合站有·funcheap`.
 - `StartAt` / `EndAt` (local wall time): `2026-10-08 18:00` for timed events, `2026-10-09` for all-day; multi-day festivals use all-day start/end. Leave both empty for long-running exhibitions, restaurants and recurring markets. Unknown end time → leave `EndAt` empty (defaults to 2 h).
-- `Image` / `ImageCredit`: the **official** page's share image (its `og:image`, or `twitter:image`) and the domain it came from, e.g. `sfmoma.org`. Only from the organizer's / venue's / government's own site — never from aggregators or news sites. Skip site-wide logos and generic brand graphics. No suitable image → leave both empty; the page draws a category illustration instead.
+- `Image` / `ImageCredit`: the **official** page's share image (its `og:image`, or `twitter:image`) and the domain it came from, e.g. `sfmoma.org`. Only from the organizer's / venue's / government's own site — never from aggregators or news sites. Skip site-wide logos and generic brand graphics. Must be a real **photograph** (no logos, cartoons, icons or text-only posters). If the event has no usable photo, use a photo of the venue from its official site, or a Wikimedia Commons photo of the venue/area (direct `upload.wikimedia.org/.../1280px-...` URL, credit `commons.wikimedia.org`). Every row should have one; if truly nothing exists, leave both empty and the card simply shows no picture (there is no cartoon fallback).
 - No tabs or newlines inside fields; no field may start with `=`, `+` or `@`.
 
 ## 5. Checks, then PR

@@ -506,30 +506,26 @@ console.log('\n=== 天气中文化与图标 ===');
 console.log('\n=== 活动配图 ===');
 {
   const { app } = makeApp(FIXTURE);
-  check('有官方图：显示图片 + 来源，插图作为载入失败的后备', () => {
+  check('有照片：显示图片 + 来源，载入失败就拿掉配图区（不用卡通）', () => {
     const h = app.renderMedia_({ Category: '展', Image: 'https://www.sfmoma.org/x.jpg', ImageCredit: 'sfmoma.org' });
     contains(h, 'src="https://www.sfmoma.org/x.jpg"');
     contains(h, '圖片 · sfmoma.org');
     contains(h, 'referrerpolicy="no-referrer"');
-    contains(h, 'class="illo"');
-    notContains(h, 'media fallback"><div');
+    contains(h, 'this.parentNode.remove()');
+    notContains(h, '<svg');
   });
-  check('没有图 / 非 https 链接 → 直接用类别插图', () => {
+  check('没有图 / 非 https 链接 → 不显示配图区', () => {
     ['', 'http://x.com/a.jpg', 'javascript:alert(1)'].forEach(v => {
-      const h = app.renderMedia_({ Category: '吃', Image: v });
-      contains(h, 'class="media fallback"');
-      notContains(h, '<img');
+      assert(app.renderMedia_({ Category: '吃', Image: v }) === '', v);
     });
   });
   check('来源只显示网域，不显示完整路径', () => {
     const h = app.renderMedia_({ Category: '展', Image: 'https://a.org/x.jpg', ImageCredit: 'https://famsf.org/exhibitions/miro' });
     contains(h, '圖片 · famsf.org<');
   });
-  check('每张票都有配图区', () => {
+  check('页面上没有卡通插图', () => {
     const html = app.doGet({ parameter: { city: 'sf', week: '2026-09-02' } }).html;
-    const tickets = (html.match(/<div class="ticket/g) || []).length;
-    const media = (html.match(/<div class="media/g) || []).length;
-    assert(tickets > 0 && tickets === media, tickets + ' vs ' + media);
+    notContains(html, 'illo');
   });
 }
 
