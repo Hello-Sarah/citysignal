@@ -42,13 +42,14 @@ Drop anything whose 2026 date cannot be confirmed anywhere. Known-good HK source
 `data/issues/<WeekId>.tsv`, UTF-8, tab-separated, this exact header:
 
 ```
-City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick	StartAt	EndAt
+City	WeekId	Zone	SubGroup	Category	Title	DateInfo	Location	Status	PriceInfo	MapLink	Note	Pick	StartAt	EndAt	Image	ImageCredit
 ```
 
 - Enum columns use the simplified spellings above; free text (Title, DateInfo, PriceInfo, Note) in Traditional Chinese.
 - `MapLink` = `https://www.google.com/maps/search/?api=1&query=` + URL-encoded location.
 - `Note` ends with the source domain, e.g. `sfmoma.org官方`, `info.gov.hk政府`, `2026日期僅聚合站有·funcheap`.
 - `StartAt` / `EndAt` (local wall time): `2026-10-08 18:00` for timed events, `2026-10-09` for all-day; multi-day festivals use all-day start/end. Leave both empty for long-running exhibitions, restaurants and recurring markets. Unknown end time → leave `EndAt` empty (defaults to 2 h).
+- `Image` / `ImageCredit`: the **official** page's share image (its `og:image`, or `twitter:image`) and the domain it came from, e.g. `sfmoma.org`. Only from the organizer's / venue's / government's own site — never from aggregators or news sites. Skip site-wide logos and generic brand graphics. No suitable image → leave both empty; the page draws a category illustration instead.
 - No tabs or newlines inside fields; no field may start with `=`, `+` or `@`.
 
 ## 5. Checks, then PR

@@ -32,7 +32,10 @@ HEADER = [
 ]
 # 加入日历用的两列，选填，接在 Pick 后面。填了才出日历按钮。
 TIME_COLS = ["StartAt", "EndAt"]
+# 活动配图，选填：官方分享图 https 链接 + 图片来源网域
+IMAGE_COLS = ["Image", "ImageCredit"]
 HEADER_FULL = HEADER + TIME_COLS
+HEADER_IMG = HEADER_FULL + IMAGE_COLS
 WALLTIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$")
 
 # 分区是按城市定的：每个城市有自己的一套 Zone。
@@ -81,7 +84,7 @@ def check_header(rows, rep):
         rep.error(0, "-", "文件为空")
         return False
     head = [c.strip() for c in rows[0]]
-    if head == HEADER or head == HEADER_FULL:
+    if head in (HEADER, HEADER_FULL, HEADER_IMG):
         return True
     # 允许缺少末尾的 Pick 列（旧版数据）
     if head == HEADER[:-1]:
@@ -98,19 +101,28 @@ def check_header(rows, rep):
 def check_rows(rows, rep):
     ncol = len(HEADER)
     weekids = set()
-    has_time = [c.strip() for c in rows[0]] == HEADER_FULL
+    head = [c.strip() for c in rows[0]]
+    has_time = head in (HEADER_FULL, HEADER_IMG)
+    has_img = head == HEADER_IMG
     seen_titles = {}
 
     for i, raw in enumerate(rows[1:], start=2):
         if not any(c.strip() for c in raw):
             continue  # 跳过纯空行
 
-        allowed = (ncol, ncol - 1) + ((ncol + 1, ncol + 2) if has_time else ())
-        if len(raw) not in allowed:
-            rep.error(i, "-", f"列数为 {len(raw)}，期望 {ncol}" + ("–" + str(ncol + 2) if has_time else ""))
+        cols = HEADER_IMG if has_img else HEADER_FULL if has_time else HEADER
+        if not (ncol - 1 <= len(raw) <= len(cols)):
+            rep.error(i, "-", f"列数为 {len(raw)}，期望 {ncol}–{len(cols)}")
             continue
-        cols = HEADER_FULL if has_time else HEADER
         r = dict(zip(cols, list(raw) + [""] * (len(cols) - len(raw))))
+
+        # 0a) 配图：只收 https；有图必须写来源
+        if has_img:
+            im, cr = r["Image"].strip(), r["ImageCredit"].strip()
+            if im and not im.lower().startswith("https://"):
+                rep.error(i, "Image", f"只接受 https 链接，实际 {im[:40]!r}")
+            if im and not cr:
+                rep.error(i, "ImageCredit", "有图片就必须写图片来源网域")
 
         # 0) StartAt / EndAt：格式、先后
         if has_time:

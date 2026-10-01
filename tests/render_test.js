@@ -90,7 +90,7 @@ function makeApp(sheetValues, initialSentLog, http) {
   };
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
   const factory = new Function(...Object.keys(stubs),
-    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_, importApprovedIssues_, importIssuesNow };');
+    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_, importApprovedIssues_, importIssuesNow, nwsToDays_, translateNws_, hkoKind_, renderMedia_ };');
   const app = factory(...Object.values(stubs));
   return { app, sentMail, logged, getSentLog: () => sentLog };
 }
@@ -472,6 +472,64 @@ console.log('\n=== 从 GitHub 导入已审核的期次 ===');
     app.sendWeeklyEmail();
     assert(sentMail.length === 2, '两城都有新一期，应发 2 封，实际 ' + sentMail.length);
     sentMail.forEach(m => contains(m.subject, '09.09 那一週'));
+  });
+}
+
+console.log('\n=== 天气中文化与图标 ===');
+{
+  const { app } = makeApp(FIXTURE);
+  check('NWS：白天配夜晚，最高/最低温、星期、中文描述、图标类型', () => {
+    const days = app.nwsToDays_([
+      { name: 'Tonight', isDaytime: false, temperature: 55, temperatureUnit: 'F', startTime: '2026-10-01T18:00:00-07:00', shortForecast: 'Clear' },
+      { name: 'Thursday', isDaytime: true, temperature: 74, temperatureUnit: 'F', startTime: '2026-10-02T06:00:00-07:00', shortForecast: 'Patchy Fog then Mostly Sunny' },
+      { name: 'Thursday Night', isDaytime: false, temperature: 58, temperatureUnit: 'F', startTime: '2026-10-02T18:00:00-07:00', shortForecast: 'Mostly Clear' },
+      { name: 'Friday', isDaytime: true, temperature: 70, temperatureUnit: 'F', startTime: '2026-10-03T06:00:00-07:00', shortForecast: 'Chance Rain Showers' },
+    ]);
+    assert(days.length === 2, JSON.stringify(days));
+    assert(days[0].label === '週五' && days[0].hi === '74°F' && days[0].lo === '58°F', JSON.stringify(days[0]));
+    assert(days[0].text === '局部有霧，之後大致天晴', days[0].text);
+    assert(days[0].kind === 'fog');
+    assert(days[1].kind === 'showers' && days[1].lo === '', JSON.stringify(days[1]));
+  });
+  check('翻译不了的短语保留英文，不乱猜', () => {
+    assert(app.translateNws_('Blowing Dust') === 'Blowing Dust');
+  });
+  check('天文台图标编号映射', () => {
+    assert(app.hkoKind_(50) === 'sun' && app.hkoKind_(65) === 'thunder' && app.hkoKind_(63) === 'rain' && app.hkoKind_(999) === 'partly');
+  });
+  check('天气块里有图标', () => {
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    contains(html, '.wx-icon');
+  });
+}
+
+console.log('\n=== 活动配图 ===');
+{
+  const { app } = makeApp(FIXTURE);
+  check('有官方图：显示图片 + 来源，插图作为载入失败的后备', () => {
+    const h = app.renderMedia_({ Category: '展', Image: 'https://www.sfmoma.org/x.jpg', ImageCredit: 'sfmoma.org' });
+    contains(h, 'src="https://www.sfmoma.org/x.jpg"');
+    contains(h, '圖片 · sfmoma.org');
+    contains(h, 'referrerpolicy="no-referrer"');
+    contains(h, 'class="illo"');
+    notContains(h, 'media fallback"><div');
+  });
+  check('没有图 / 非 https 链接 → 直接用类别插图', () => {
+    ['', 'http://x.com/a.jpg', 'javascript:alert(1)'].forEach(v => {
+      const h = app.renderMedia_({ Category: '吃', Image: v });
+      contains(h, 'class="media fallback"');
+      notContains(h, '<img');
+    });
+  });
+  check('来源只显示网域，不显示完整路径', () => {
+    const h = app.renderMedia_({ Category: '展', Image: 'https://a.org/x.jpg', ImageCredit: 'https://famsf.org/exhibitions/miro' });
+    contains(h, '圖片 · famsf.org<');
+  });
+  check('每张票都有配图区', () => {
+    const html = app.doGet({ parameter: { city: 'sf', week: '2026-09-02' } }).html;
+    const tickets = (html.match(/<div class="ticket/g) || []).length;
+    const media = (html.match(/<div class="media/g) || []).length;
+    assert(tickets > 0 && tickets === media, tickets + ' vs ' + media);
   });
 }
 

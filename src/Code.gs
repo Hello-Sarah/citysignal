@@ -127,7 +127,7 @@ function defaultCity_() {
 
 function weatherFor_(city) {
   if (!city || !city.weather) return null;
-  const key = 'wx_' + city.slug;
+  const key = 'wx2_' + city.slug;   // 格式改過（加了圖標），換 key 讓舊快取作廢
   let cache = null;
   try {
     cache = CacheService.getScriptCache();
@@ -165,13 +165,74 @@ function fetchNws_(cfg) {
   if (fc.getResponseCode() !== 200) return null;
   const periods = JSON.parse(fc.getContentText()).properties.periods || [];
 
-  // NWS 一天拆成日/夜兩段，只取白天那段
-  return periods.filter(p => p.isDaytime).slice(0, 5).map(p => ({
-    label: p.name,
-    hi: p.temperature + '\u00B0' + p.temperatureUnit,
-    lo: '',
-    text: p.shortForecast
-  }));
+  return nwsToDays_(periods);
+}
+
+// NWS 一天拆成日/夜兩段：白天那段給最高溫和天氣描述，緊跟着的夜晚那段給最低溫。
+// 星期按 startTime 的日期算，描述翻成繁體中文（翻不了的短語保留英文，不亂猜）。
+var NWS_PHRASES_ = [
+  ['Slight Chance Rain Showers', '稍有機會驟雨'], ['Chance Rain Showers', '可能有驟雨'],
+  ['Slight Chance Showers And Thunderstorms', '稍有機會雷雨'], ['Chance Showers And Thunderstorms', '可能有雷雨'],
+  ['Showers And Thunderstorms', '驟雨及雷暴'], ['Thunderstorms', '雷暴'],
+  ['Rain Showers', '驟雨'], ['Light Rain', '微雨'], ['Heavy Rain', '大雨'], ['Drizzle', '毛毛雨'], ['Rain', '有雨'],
+  ['Patchy Fog', '局部有霧'], ['Areas Of Fog', '部分地區有霧'], ['Dense Fog', '濃霧'], ['Fog', '有霧'],
+  ['Haze', '煙霞'], ['Smoke', '有煙霞'],
+  ['Mostly Sunny', '大致天晴'], ['Partly Sunny', '間中有陽光'], ['Sunny', '天晴'],
+  ['Mostly Clear', '大致天晴'], ['Partly Cloudy', '部分時間多雲'], ['Mostly Cloudy', '大致多雲'],
+  ['Cloudy', '多雲'], ['Clear', '天晴'], ['Breezy', '有風'], ['Windy', '大風'], ['Hot', '炎熱']
+];
+var WEEKDAYS_ = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+function translateNws_(s) {
+  return String(s || '').split(/\s+then\s+/i).map(part => {
+    const hit = NWS_PHRASES_.filter(p => p[0].toLowerCase() === part.trim().toLowerCase())[0];
+    return hit ? hit[1] : part.trim();
+  }).join('，之後');
+}
+
+function wxKindFromText_(s) {
+  const x = String(s || '').toLowerCase();
+  if (/thunder/.test(x)) return 'thunder';
+  if (/(chance|slight).*(rain|shower)/.test(x)) return 'showers';
+  if (/rain|shower|drizzle/.test(x)) return 'rain';
+  if (/fog|haze|smoke|mist/.test(x)) return 'fog';
+  if (/wind|breez/.test(x)) return 'wind';
+  if (/partly|mostly cloudy/.test(x)) return 'partly';
+  if (/cloud|overcast/.test(x)) return 'cloud';
+  return 'sun';
+}
+
+function nwsToDays_(periods) {
+  const out = [];
+  periods.forEach((p, i) => {
+    if (!p.isDaytime || out.length >= 5) return;
+    const night = periods[i + 1] && !periods[i + 1].isDaytime ? periods[i + 1] : null;
+    const ymd = String(p.startTime || '').slice(0, 10).split('-');
+    const wd = ymd.length === 3 ? WEEKDAYS_[new Date(Date.UTC(+ymd[0], +ymd[1] - 1, +ymd[2])).getUTCDay()] : p.name;
+    const unit = '\u00B0' + (p.temperatureUnit || 'F');
+    out.push({
+      label: wd,
+      hi: p.temperature + unit,
+      lo: night ? night.temperature + unit : '',
+      text: translateNws_(p.shortForecast),
+      kind: wxKindFromText_(p.shortForecast)
+    });
+  });
+  return out;
+}
+
+// 香港天文台 ForecastIcon 編號 → 圖標類型（編號表見天文台開放數據文檔）
+function hkoKind_(code) {
+  const c = Number(code);
+  if ([50, 90, 91, 70, 71, 72, 73, 74, 75, 76, 77].indexOf(c) >= 0) return 'sun';
+  if ([51, 52].indexOf(c) >= 0) return 'partly';
+  if ([53, 54].indexOf(c) >= 0) return 'showers';
+  if ([60, 61, 92, 93].indexOf(c) >= 0) return 'cloud';
+  if ([62, 63, 64].indexOf(c) >= 0) return 'rain';
+  if (c === 65) return 'thunder';
+  if ([83, 84, 85].indexOf(c) >= 0) return 'fog';
+  if (c === 80) return 'wind';
+  return 'partly';
 }
 
 function fetchHko_() {
@@ -184,7 +245,8 @@ function fetchHko_() {
     label: String(d.week || '').replace('星期', '週'),
     hi: (d.forecastMaxtemp && d.forecastMaxtemp.value) ? d.forecastMaxtemp.value + '\u00B0' : '',
     lo: (d.forecastMintemp && d.forecastMintemp.value) ? d.forecastMintemp.value + '\u00B0' : '',
-    text: String(d.forecastWeather || '').replace(/。$/, '')
+    text: String(d.forecastWeather || '').replace(/。$/, ''),
+    kind: hkoKind_(d.ForecastIcon)
   }));
 }
 
@@ -205,6 +267,7 @@ function renderWeather_(city) {
   const cells = days.map(d => `
     <div class="wx-day">
       <div class="wx-label">${esc_(d.label)}</div>
+      <div class="wx-icon">${WX_ICONS_[d.kind] || WX_ICONS_.partly}</div>
       <div class="wx-temp">${esc_(d.hi)}${d.lo ? ' / ' + esc_(d.lo) : ''}</div>
       <div class="wx-text">${esc_(d.text)}</div>
     </div>`).join('');
@@ -214,6 +277,27 @@ function renderWeather_(city) {
     <div class="wx-row">${cells}</div>
   </div>`;
 }
+
+// 天氣圖標：自己畫的一套線條圖標，兩個城市風格一致，也不依賴外部圖片能不能載入
+var WX_SUN_ = '<circle cx="16" cy="16" r="6" fill="#e3b448" stroke="#a9812c" stroke-width="1.5"/>' +
+  '<g stroke="#a9812c" stroke-width="1.6" stroke-linecap="round"><path d="M16 3v3M16 26v3M3 16h3M26 16h3M6.8 6.8l2.1 2.1M23.1 23.1l2.1 2.1M6.8 25.2l2.1-2.1M23.1 8.9l2.1-2.1"/></g>';
+var WX_CLOUD_ = '<path d="M9 25h15a5 5 0 0 0 0-10 7 7 0 0 0-13.4 1.6A4.2 4.2 0 0 0 9 25z" fill="#f7f3e8" stroke="#5c7078" stroke-width="1.6" stroke-linejoin="round"/>';
+var WX_ICONS_ = (function () {
+  const svg = (inner) => '<svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">' + inner + '</svg>';
+  const drops = (n) => '<g stroke="#4a7ea8" stroke-width="1.7" stroke-linecap="round">' +
+    (n === 2 ? '<path d="M13 27l-1 3M19 27l-1 3"/>' : '<path d="M11 27l-1 3M16 27l-1 3M21 27l-1 3"/>') + '</g>';
+  return {
+    sun: svg(WX_SUN_),
+    partly: svg('<g transform="translate(-4,-4) scale(.8)">' + WX_SUN_ + '</g>' + WX_CLOUD_),
+    cloud: svg(WX_CLOUD_.replace('#f7f3e8', '#e4e6e3')),
+    rain: svg('<g transform="translate(0,-3)">' + WX_CLOUD_.replace('#f7f3e8', '#e4e6e3') + '</g>' + drops(3)),
+    showers: svg('<g transform="translate(-4,-6) scale(.7)">' + WX_SUN_ + '</g><g transform="translate(0,-3)">' + WX_CLOUD_ + '</g>' + drops(2)),
+    thunder: svg('<g transform="translate(0,-4)">' + WX_CLOUD_.replace('#f7f3e8', '#d5d9d6') + '</g>' +
+      '<path d="M17 21l-4 6h4l-2 5 6-8h-4l2-3z" fill="#e3b448" stroke="#a9812c" stroke-width="1" stroke-linejoin="round"/>'),
+    fog: svg('<g stroke="#5c7078" stroke-width="1.8" stroke-linecap="round"><path d="M6 12h20M4 17h22M8 22h18M6 27h14"/></g>'),
+    wind: svg('<g fill="none" stroke="#5c7078" stroke-width="1.8" stroke-linecap="round"><path d="M4 12h15a4 4 0 1 0-4-4"/><path d="M4 18h21a4 4 0 1 1-4 4"/><path d="M4 24h9"/></g>')
+  };
+})();
 
 // ============================================================
 // 入口：網頁請求處理
@@ -623,6 +707,7 @@ function renderTicket_(item, ctx) {
 
   return `
   <div class="ticket${isPick ? ' pick' : ''}">
+    ${renderMedia_(item)}
     <div class="stub">
       <span class="tag">${esc_(item.Category)}</span>
       <span class="date">${esc_(item.DateInfo)}</span>
@@ -639,6 +724,51 @@ function renderTicket_(item, ctx) {
       ${item.Note ? `<div class="note">${esc_(item.Note)}</div>` : ''}
     </div>
   </div>`;
+}
+
+// ============================================================
+// 活動配圖
+// ============================================================
+// Image 列：主辦方 / 場館官網的分享圖（og:image），ImageCredit 列：圖片來源網域。
+// 有圖就顯示官方圖並註明來源；沒有圖、或圖片載入失敗，就顯示按類別畫的插圖。
+// 只認 https 開頭的鏈接——和地圖按鈕一樣，防止表格裏填了別的東西。
+var ILLO_ = (function () {
+  // 插圖按比例縮放放在中間（meet），底色鋪滿整個配圖區，卡片多高都不會把圖裁壞
+  const box = (bg, inner) => '<div class="illo-bg" style="background:' + bg + '">' +
+    '<svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
+    '<g fill="none" stroke="#1e2a32" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' + inner + '</g></svg></div>';
+  return {
+    '吃': box('#ead9c0', '<path d="M46 66h68a34 34 0 0 1-68 0z" fill="#f7f1e3"/><path d="M40 66h80"/>' +
+      '<path d="M66 54c-4-6 4-10 0-16M80 54c-4-6 4-10 0-16M94 54c-4-6 4-10 0-16" stroke="#a94e29"/>'),
+    '展': box('#dfe5e2', '<rect x="48" y="30" width="64" height="56" fill="#f7f1e3"/><rect x="56" y="38" width="48" height="40"/>' +
+      '<path d="M60 74l14-16 10 10 6-6 10 12" stroke="#5c7a52"/><circle cx="92" cy="48" r="4" fill="#a9812c" stroke="none"/>'),
+    '玩': box('#e6dccb', '<path d="M80 26l8 16 18 3-13 12 3 18-16-9-16 9 3-18-13-12 18-3z" fill="#e3b448"/>' +
+      '<path d="M40 92c14-8 26 8 40 0s26 8 40 0" stroke="#a94e29"/>'),
+    '演': box('#e4d6cf', '<path d="M30 24h100v8H30z" fill="#a94e29"/><path d="M34 32c0 28 8 50 26 64M126 32c0 28-8 50-26 64" fill="#d9b8a6"/>' +
+      '<ellipse cx="80" cy="92" rx="22" ry="6" fill="#f7f1e3"/><path d="M80 32v50"/>'),
+    '音樂': box('#dde3e6', '<path d="M68 82V40l38-8v42"/><circle cx="60" cy="82" r="9" fill="#1e2a32"/><circle cx="98" cy="74" r="9" fill="#1e2a32"/>'),
+    '講座': box('#e2e0d4', '<path d="M40 34h80v42H76l-14 14V76H40z" fill="#f7f1e3"/><path d="M54 48h52M54 60h36"/>'),
+    '讀書': box('#e8dfcd', '<path d="M80 40c-12-8-28-8-40-4v52c12-4 28-4 40 4 12-8 28-8 40-4V36c-12-4-28-4-40 4z" fill="#f7f1e3"/><path d="M80 40v52"/>'),
+    '集市': box('#e7dccc', '<path d="M36 46h88l-8-16H44z" fill="#a94e29"/><path d="M36 46c0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0 0 8 11 8 11 0" fill="#f7f1e3"/>' +
+      '<path d="M44 56v36M116 56v36M40 92h80"/><circle cx="68" cy="80" r="6" fill="#e3b448"/><circle cx="88" cy="80" r="6" fill="#5c7a52"/>'),
+    '喜劇': box('#ece0c8', '<circle cx="80" cy="60" r="30" fill="#f7f1e3"/><path d="M66 54h2M92 54h2"/><path d="M64 68c8 10 24 10 32 0"/>'),
+    '文化': box('#e9d7c6', '<path d="M80 24v10"/><path d="M64 34h32"/><path d="M60 40c0-6 40-6 40 0v36c0 6-40 6-40 0z" fill="#d9583a"/>' +
+      '<path d="M60 52h40M60 64h40" stroke="#a94e29"/><path d="M64 82h32"/><path d="M80 82v14" stroke="#a9812c"/>')
+  };
+})();
+
+function renderMedia_(item) {
+  const illo = ILLO_[item.Category] || ILLO_['玩'];
+  const img = String(item.Image || '').trim();
+  if (!/^https:\/\//i.test(img)) return `<div class="media fallback"><div class="illo">${illo}</div></div>`;
+  const credit = String(item.ImageCredit || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  return `
+    <div class="media">
+      <img src="${esc_(img)}" alt="" loading="lazy" referrerpolicy="no-referrer"
+           onerror="this.parentNode.className='media fallback'">
+      <div class="illo">${illo}</div>
+      ${credit ? `<a class="credit" href="https://${esc_(credit)}" target="_blank" rel="noopener">圖片 · ${esc_(credit)}</a>` : ''}
+    </div>`;
 }
 
 // ============================================================
@@ -676,6 +806,7 @@ const PAGE_CSS_ = `
   .wx-day{flex:1 1 110px;min-width:110px;}
   .wx-label{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);
     letter-spacing:.03em;}
+  .wx-icon{margin-top:4px;height:30px;}
   .wx-temp{font-family:'IBM Plex Mono',monospace;font-size:17px;color:var(--ink);
     margin-top:3px;font-variant-numeric:tabular-nums;}
   .wx-text{font-size:11.5px;color:var(--fog-dark);margin-top:3px;line-height:1.5;}
@@ -728,7 +859,24 @@ const PAGE_CSS_ = `
   .cal-link{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);text-decoration:none;
     padding:2px 9px;border:1px solid var(--paper-shadow);border-radius:12px;background:rgba(255,255,255,.35);}
   .cal-link:hover{background:#fff;}
+  .media{position:relative;flex:0 0 170px;order:3;background:#e9e2d0;overflow:hidden;
+    border-left:2px dashed var(--paper-shadow);}
+  .media img{display:block;width:100%;height:100%;object-fit:cover;min-height:130px;}
+  .media .illo{display:none;width:100%;height:100%;}
+  .media .illo .illo-bg{width:100%;height:100%;min-height:130px;display:flex;align-items:center;justify-content:center;}
+  .media .illo svg{display:block;width:96%;max-height:150px;}
+  .media.fallback img{display:none;}
+  .media.fallback .illo{display:block;}
+  .media .credit{position:absolute;left:0;right:0;bottom:0;padding:3px 7px;font-size:9.5px;
+    font-family:'IBM Plex Mono',monospace;color:#fff;text-decoration:none;
+    background:linear-gradient(transparent,rgba(20,30,38,.65));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .media.fallback .credit{display:none;}
+  .ticket.pick .media{border-left-color:var(--gold);}
   @media(max-width:700px){
+    .ticket{flex-wrap:wrap;}
+    .media{flex:0 0 100%;order:-1;height:150px;border-left:0;border-bottom:2px dashed var(--paper-shadow);}
+    .media img,.media .illo .illo-bg{min-height:0;height:150px;}
+    .media .illo svg{width:auto;height:120px;}
     .layout{flex-direction:column;}
     .sidebar{padding:20px 16px 0;}
     .sidebar-title{margin-top:0;}
