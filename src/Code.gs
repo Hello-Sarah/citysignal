@@ -35,6 +35,8 @@ const CONFIG = {
       // 天氣用美國國家氣象局（NWS）——政府氣象源，免 API key。
       // 和整個項目一樣：能用官方就不用聚合站。
       weather: { provider: 'nws', lat: 37.7749, lon: -122.4194 },
+      // 加入日曆用：StartAt / EndAt 填的是當地「牆上時間」，按這個時區解讀
+      tz: 'America/Los_Angeles',
       zones: ['三藩市市內', '灣區市外', '華人社群活動']
     },
     {
@@ -45,6 +47,7 @@ const CONFIG = {
       mailName: '香港',
       // 香港天文台開放數據，繁體中文九天預報
       weather: { provider: 'hko' },
+      tz: 'Asia/Hong_Kong',
       zones: ['港島', '九龍', '新界']
     }
     // 紐約留位：把下面這項取消註釋並補好 zones 即可，無需改代碼
@@ -213,6 +216,9 @@ function doGet(e) {
   // 城市：?city=hk。非法或缺省一律回落到默認城市，不報錯。
   const city = findCityBySlug_(param.city) || defaultCity_();
 
+  // ?ics=1&city=sf&week=2026-09-30&n=3 → 下載單條活動的 .ics，給蘋果日曆 / Outlook 用
+  if (param.ics) return icsResponse_(data, city, param.week, param.n);
+
   // 期次列表是按城市算的：切城市時下面的往期列表跟着換
   const weekIds = getSortedWeekIds_(data, city);
   const selectedWeek = (param.week && weekIds.indexOf(param.week) !== -1)
@@ -260,8 +266,21 @@ function normalizeEnum_(v) {
   return Object.prototype.hasOwnProperty.call(ENUM_S2T_, v) ? ENUM_S2T_[v] : v;
 }
 
+// StartAt / EndAt 是帶時分的「牆上時間」。Sheets 會把 2026-10-02 13:00 識別成日期時間，
+// getValues() 返回 Date；這兩列必須按表格自己的時區格式化並保留時分，
+// 否則 13:00 會被抹成當天零點、或被換算到別的時區。
+var TIME_COLUMNS_ = ['StartAt', 'EndAt'];
+
+function timeCellToString_(v, ssTz) {
+  if (Object.prototype.toString.call(v) !== '[object Date]') return cellToString_(v);
+  const hasTime = v.getHours() || v.getMinutes();
+  return Utilities.formatDate(v, ssTz, hasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd');
+}
+
 function readAllEvents_() {
-  const sheet = SpreadsheetApp.openById(CONFIG.SHEET_ID).getSheetByName(CONFIG.SHEET_TAB_NAME);
+  const ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  const sheet = ss.getSheetByName(CONFIG.SHEET_TAB_NAME);
+  let ssTz = null;
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(h => String(h).trim());
   const rows = values.slice(1).filter(r => r[0] !== '' && r[0] !== null && r[0] !== undefined);
@@ -269,13 +288,19 @@ function readAllEvents_() {
   return rows.map(r => {
     const obj = {};
     headers.forEach((h, i) => {
+      if (TIME_COLUMNS_.indexOf(h) >= 0) {
+        if (!ssTz) ssTz = ss.getSpreadsheetTimeZone();
+        obj[h] = timeCellToString_(r[i], ssTz);
+        return;
+      }
       const val = cellToString_(r[i]);
       obj[h] = ENUM_COLUMNS_.indexOf(h) >= 0 ? normalizeEnum_(val) : val;
     });
     return obj;
   });
   // 期望的列（表頭）：
-  // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick
+  // City | WeekId | Zone | SubGroup | Category | Title | DateInfo | Location | Status | PriceInfo | MapLink | Note | Pick | StartAt | EndAt
+  // StartAt / EndAt 選填：填了才出「加入日曆」按鈕。格式 2026-10-02 13:00（定時）或 2026-10-02（全天）
   // City 填 CONFIG.CITIES 裏的 label（如「三藩市灣區」「香港」）
   // Pick 列填任意非空值（建議 ★）= 標記為「給你挑的」，會在頁面上高亮
 }
@@ -359,7 +384,10 @@ function renderPage_(data, city, weekIds, selectedWeek) {
   }).join('');
 
   const zones = (city && city.zones) ? city.zones : [];
-  const zonesHtml = zones.map(zone => renderZone_(zone, weekData)).join('');
+  // 給每條活動一個期內序號（按表格順序），.ics 下載鏈接靠它定位是哪一條
+  weekData.forEach((d, i) => { d.__n = i; });
+  const ctx = { city: city, week: selectedWeek, baseUrl: baseUrl };
+  const zonesHtml = zones.map(zone => renderZone_(zone, weekData, ctx)).join('');
   // 空狀態：新城市在第一期做出來之前，頁面必須能正常打開並説明情況，
   // 而不是白屏或渲染出一個只有標題的空殼。
   const bodyHtml = zonesHtml || `
@@ -412,7 +440,7 @@ function formatWeekLabel_(weekId) {
   return s;
 }
 
-function renderZone_(zoneName, weekData) {
+function renderZone_(zoneName, weekData, ctx) {
   const zoneItems = weekData.filter(d => d.Zone === zoneName);
   if (zoneItems.length === 0) return '';
 
@@ -420,7 +448,7 @@ function renderZone_(zoneName, weekData) {
 
   const groupsHtml = subGroups.map(sg => {
     const items = zoneItems.filter(d => (d.SubGroup || '') === sg);
-    const itemsHtml = items.map(renderTicket_).join('');
+    const itemsHtml = items.map(it => renderTicket_(it, ctx)).join('');
     return `${sg ? `<div class="section-title">${esc_(sg)}</div>` : ''}${itemsHtml}`;
   }).join('');
 
@@ -430,6 +458,141 @@ function renderZone_(zoneName, weekData) {
   ${groupsHtml}`;
 }
 
+// ============================================================
+// 加入日曆
+// ============================================================
+// 兩種入口：
+//  - Google 日曆：拼一個模板鏈接，點開就是預填好的「新建活動」頁
+//  - .ics 下載：蘋果日曆、Outlook、手機自帶日曆都認。走 doGet(?ics=1...) 動態生成
+// 只有填了 StartAt 的條目才出按鈕。長期展覽、餐廳、每週固定的市集刻意不填——
+// 往日曆裏塞一個橫跨四個月的「活動」對誰都沒用。
+//
+// 時間一律按城市時區的「牆上時間」處理（Google 鏈接帶 ctz，.ics 帶 TZID），
+// 不在這裏做 UTC 換算：換算要依賴運行環境的時區庫，而牆上時間本身就是表格裏寫的那個意思。
+
+// '2026-10-02 13:00' / '2026-10-02T13:00' / '2026-10-02' → { ymd:'20261002', hm:'1300' | '' }
+function parseWall_(s) {
+  const m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/);
+  if (!m) return null;
+  return { ymd: m[1] + m[2] + m[3], hm: m[4] !== undefined ? ('0' + m[4]).slice(-2) + m[5] : '' };
+}
+
+// 日期 + n 天（純字符串運算，避開時區）
+function addDays_(ymd, n) {
+  const d = new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8) + n));
+  return d.getUTCFullYear() + ('0' + (d.getUTCMonth() + 1)).slice(-2) + ('0' + d.getUTCDate()).slice(-2);
+}
+
+// 返回 null = 這條不出日曆按鈕
+function calendarEvent_(item, city) {
+  const s = parseWall_(item.StartAt);
+  if (!s) return null;
+  const e = parseWall_(item.EndAt);
+  let start, end, allDay;
+  if (!s.hm) {
+    // 全天：EndAt 是「最後一天」（含），日曆格式要的是不含的結束日，所以 +1
+    allDay = true;
+    start = s.ymd;
+    end = addDays_(e && !e.hm ? e.ymd : s.ymd, 1);
+  } else {
+    allDay = false;
+    start = s.ymd + 'T' + s.hm + '00';
+    if (e && e.hm) {
+      end = e.ymd + 'T' + e.hm + '00';
+    } else {
+      // 沒寫結束時間：默認兩小時
+      const h = +s.hm.slice(0, 2) + 2;
+      end = (h >= 24 ? addDays_(s.ymd, 1) : s.ymd) + 'T' + ('0' + (h % 24)).slice(-2) + s.hm.slice(2) + '00';
+    }
+    if (end <= start) return null;   // 填反了就不出按鈕，不生成一個錯的日曆項
+  }
+  const details = [item.DateInfo, item.PriceInfo, item.Note].filter(Boolean).join('\n');
+  return {
+    title: item.Title, location: item.Location || '', details: details,
+    start: start, end: end, allDay: allDay, tz: (city && city.tz) || 'UTC'
+  };
+}
+
+function gcalUrl_(ev) {
+  const q = [
+    'action=TEMPLATE',
+    'text=' + encodeURIComponent(ev.title),
+    'dates=' + ev.start + '/' + ev.end,
+    'details=' + encodeURIComponent(ev.details),
+    'location=' + encodeURIComponent(ev.location)
+  ];
+  if (!ev.allDay) q.push('ctz=' + encodeURIComponent(ev.tz));
+  return 'https://calendar.google.com/calendar/render?' + q.join('&');
+}
+
+function icsEscape_(s) {
+  return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+
+// RFC 5545：每行最多 75 個字節，超出要折行（下一行以空格開頭）。按 UTF-8 字節切，不切斷中文字符。
+function icsFold_(line) {
+  const out = [];
+  let cur = '', bytes = 0;
+  for (const ch of line) {
+    const b = unescape(encodeURIComponent(ch)).length;
+    if (bytes + b > (out.length ? 74 : 75)) { out.push(cur); cur = ''; bytes = 0; }
+    cur += ch; bytes += b;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+
+function buildIcs_(ev, uid) {
+  const now = new Date();
+  const stamp = now.getUTCFullYear() + ('0' + (now.getUTCMonth() + 1)).slice(-2) + ('0' + now.getUTCDate()).slice(-2) +
+    'T' + ('0' + now.getUTCHours()).slice(-2) + ('0' + now.getUTCMinutes()).slice(-2) + '00Z';
+  const dt = ev.allDay
+    ? ['DTSTART;VALUE=DATE:' + ev.start, 'DTEND;VALUE=DATE:' + ev.end]
+    : ['DTSTART;TZID=' + ev.tz + ':' + ev.start, 'DTEND;TZID=' + ev.tz + ':' + ev.end];
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CitySignal//Local Events Digest//ZH', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    'UID:' + uid,
+    'DTSTAMP:' + stamp
+  ].concat(dt).concat([
+    'SUMMARY:' + icsEscape_(ev.title),
+    'LOCATION:' + icsEscape_(ev.location),
+    'DESCRIPTION:' + icsEscape_(ev.details),
+    'END:VEVENT', 'END:VCALENDAR'
+  ]).map(icsFold_).join('\r\n') + '\r\n';
+}
+
+function icsUrl_(ctx, n) {
+  return ctx.baseUrl + '?ics=1&city=' + encodeURIComponent(ctx.city.slug) +
+    '&week=' + encodeURIComponent(ctx.week) + '&n=' + n;
+}
+
+function renderCalendarLinks_(item, ctx) {
+  if (!ctx || !ctx.city) return '';
+  const ev = calendarEvent_(item, ctx.city);
+  if (!ev) return '';
+  return `
+      <div class="cal-row">
+        <span class="cal-label">加入日曆</span>
+        <a class="cal-link" href="${esc_(gcalUrl_(ev))}" target="_blank" rel="noopener">Google</a>
+        <a class="cal-link" href="${esc_(icsUrl_(ctx, item.__n))}" target="_blank" rel="noopener">蘋果 / Outlook（.ics）</a>
+      </div>`;
+}
+
+function icsResponse_(data, city, week, n) {
+  const weekData = data.filter(d => d.City === city.label && d.WeekId === String(week || ''));
+  const item = weekData[Number(n)];
+  const ev = item ? calendarEvent_(item, city) : null;
+  if (!ev) {
+    return ContentService.createTextOutput('找不到這條活動，或它沒有填開始時間。')
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+  const uid = city.slug + '-' + week + '-' + n + '@citysignal';
+  return ContentService.createTextOutput(buildIcs_(ev, uid))
+    .setMimeType(ContentService.MimeType.ICAL)
+    .downloadAsFile('event-' + city.slug + '-' + week + '-' + n + '.ics');
+}
+
 // 把表格裏的內容轉義後再放進HTML，避免標題裏出現 & < > " 時把頁面弄壞
 function esc_(v) {
   return String(v == null ? '' : v)
@@ -437,7 +600,7 @@ function esc_(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function renderTicket_(item) {
+function renderTicket_(item, ctx) {
   const statusClass = item.Status === '已核實' ? 'verified'
     : item.Status === '場地已核實' ? 'venue-verified'
     : 'unverified';
@@ -463,6 +626,7 @@ function renderTicket_(item) {
         <span class="status-badge ${statusClass}">${esc_(statusLabel)}</span>
         ${hasMap ? `<a class="map-link" href="${esc_(mapUrl)}" target="_blank" rel="noopener">在地圖中查看 →</a>` : ''}
       </div>
+      ${renderCalendarLinks_(item, ctx)}
       ${item.Note ? `<div class="note">${esc_(item.Note)}</div>` : ''}
     </div>
   </div>`;
@@ -550,6 +714,11 @@ const PAGE_CSS_ = `
   .map-link{font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--ink);
     text-decoration:none;border-bottom:1px solid var(--ink);}
   .note{margin-top:8px;font-size:12px;font-style:italic;color:var(--rust);}
+  .cal-row{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  .cal-label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--fog-dark);}
+  .cal-link{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink);text-decoration:none;
+    padding:2px 9px;border:1px solid var(--paper-shadow);border-radius:12px;background:rgba(255,255,255,.35);}
+  .cal-link:hover{background:#fff;}
   @media(max-width:700px){
     .layout{flex-direction:column;}
     .sidebar{padding:20px 16px 0;}

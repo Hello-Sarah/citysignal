@@ -44,6 +44,7 @@ function makeApp(sheetValues, initialSentLog) {
   const stubs = {
     SpreadsheetApp: {
       openById: () => ({
+        getSpreadsheetTimeZone: () => 'America/Los_Angeles',
         getSheetByName: (name) => name === 'SentLog'
           ? (sentLog ? { getDataRange: () => ({ getValues: () => sentLog }), appendRow: (r) => sentLog.push(r) } : null)
           : { getDataRange: () => ({ getValues: () => sheetValues }) },
@@ -63,10 +64,19 @@ function makeApp(sheetValues, initialSentLog) {
     Session: { getScriptTimeZone: () => 'America/Los_Angeles' },
     GmailApp: { sendEmail: (to, subject, body, opts) => sentMail.push({ to, subject, body, opts }) },
     Logger: { log: (m) => logged.push(String(m)) },
+    ContentService: {
+      MimeType: { ICAL: 'text/calendar', TEXT: 'text/plain' },
+      createTextOutput: (s) => {
+        const o = { content: s, mime: null, file: null };
+        o.setMimeType = (m) => { o.mime = m; return o; };
+        o.downloadAsFile = (f) => { o.file = f; return o; };
+        return o;
+      }
+    },
   };
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
   const factory = new Function(...Object.keys(stubs),
-    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG };');
+    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_ };');
   const app = factory(...Object.values(stubs));
   return { app, sentMail, logged, getSentLog: () => sentLog };
 }
@@ -292,6 +302,90 @@ console.log('\n=== 同一期不重发 ===');
     app.previewWeeklyEmail();
     assert(sentMail.length === 2, '预览应照发');
     assert(getSentLog().length === 3, '预览不该写记录');
+  });
+}
+
+console.log('\n=== 加入日历 ===');
+{
+  const H = HEADER.concat(['StartAt', 'EndAt']);
+  const r2 = (o) => H.map(h => o[h] === undefined ? '' : o[h]);
+  const CAL = [H,
+    r2({City:'三藩市湾区', WeekId:'2026-09-30', Zone:'三藩市市内', SubGroup:'演', Category:'演',
+        Title:'定时活动, 带逗号', DateInfo:'10.02 1–7pm', Location:'Golden Gate Park, SF', Status:'已核实',
+        StartAt:'2026-10-02 13:00', EndAt:'2026-10-02 19:00'}),
+    r2({City:'三藩市湾区', WeekId:'2026-09-30', Zone:'三藩市市内', SubGroup:'展', Category:'展',
+        Title:'长期展览', DateInfo:'至2027.02.07', Location:'SFMOMA', Status:'已核实'}),
+    r2({City:'三藩市湾区', WeekId:'2026-09-30', Zone:'三藩市市内', SubGroup:'玩', Category:'玩',
+        Title:'三天全天', DateInfo:'10.09–11', Location:'Marina Green', Status:'已核实',
+        StartAt:'2026-10-09', EndAt:'2026-10-11'}),
+    r2({City:'香港', WeekId:'2026-09-30', Zone:'港岛', SubGroup:'玩', Category:'玩',
+        Title:'国庆烟花', DateInfo:'10.01 8pm', Location:'维港', Status:'已核实', StartAt:'2026-10-01 20:00'}),
+  ];
+  const sf = (app) => app.CONFIG.CITIES.filter(c => c.slug === 'sf')[0];
+  const hk = (app) => app.CONFIG.CITIES.filter(c => c.slug === 'hk')[0];
+
+  check('填了 StartAt 的条目出两个日历按钮，没填的不出', () => {
+    const { app } = makeApp(CAL);
+    const html = app.doGet({ parameter: { city: 'sf' } }).html;
+    const n = (html.match(/class="cal-row"/g) || []).length;
+    assert(n === 2, '应有 2 条带日历按钮，实际 ' + n);
+    contains(html, 'calendar.google.com/calendar/render?action=TEMPLATE');
+    contains(html, '?ics=1&amp;city=sf&amp;week=2026-09-30&amp;n=0');
+  });
+
+  check('Google 链接：定时活动带城市时区，日期是墙上时间', () => {
+    const { app } = makeApp(CAL);
+    const ev = app.calendarEvent_({ Title:'x', StartAt:'2026-10-02 13:00', EndAt:'2026-10-02 19:00' }, sf(app));
+    const u = app.gcalUrl_(ev);
+    contains(u, 'dates=20261002T130000/20261002T190000');
+    contains(u, 'ctz=America%2FLos_Angeles');
+  });
+
+  check('全天活动：结束日按日历惯例 +1（不含）', () => {
+    const { app } = makeApp(CAL);
+    const ev = app.calendarEvent_({ Title:'x', StartAt:'2026-10-09', EndAt:'2026-10-11' }, sf(app));
+    assert(ev.allDay && ev.start === '20261009' && ev.end === '20261012', JSON.stringify(ev));
+    notContains(app.gcalUrl_(ev), 'ctz=');
+  });
+
+  check('没写结束时间：默认两小时；跨午夜正确进位', () => {
+    const { app } = makeApp(CAL);
+    const a = app.calendarEvent_({ Title:'x', StartAt:'2026-10-01 20:00' }, hk(app));
+    assert(a.end === '20261001T220000', a.end);
+    const b = app.calendarEvent_({ Title:'x', StartAt:'2026-12-31 23:30' }, hk(app));
+    assert(b.end === '20270101T013000', b.end);
+  });
+
+  check('结束早于开始、格式不对 → 不出按钮', () => {
+    const { app } = makeApp(CAL);
+    assert(app.calendarEvent_({ Title:'x', StartAt:'2026-10-02 19:00', EndAt:'2026-10-02 13:00' }, sf(app)) === null);
+    assert(app.calendarEvent_({ Title:'x', StartAt:'10.02 1pm' }, sf(app)) === null);
+  });
+
+  check('.ics 下载：MIME、TZID、转义、CRLF', () => {
+    const { app } = makeApp(CAL);
+    const out = app.doGet({ parameter: { ics: '1', city: 'sf', week: '2026-09-30', n: '0' } });
+    assert(out.mime === 'text/calendar', out.mime);
+    contains(out.file, '.ics');
+    contains(out.content, 'DTSTART;TZID=America/Los_Angeles:20261002T130000');
+    contains(out.content, 'SUMMARY:定时活动\\, 带逗号');
+    contains(out.content, 'LOCATION:Golden Gate Park\\, SF');
+    assert(out.content.indexOf('\r\n') !== -1 && !/[^\r]\n/.test(out.content), '必须是 CRLF');
+  });
+
+  check('.ics：没有 StartAt 的条目返回说明文字而不是坏文件', () => {
+    const { app } = makeApp(CAL);
+    const out = app.doGet({ parameter: { ics: '1', city: 'sf', week: '2026-09-30', n: '1' } });
+    assert(out.mime === 'text/plain', out.mime);
+  });
+
+  check('.ics 长行按 UTF-8 字节折行，不切断中文', () => {
+    const { app } = makeApp(CAL);
+    const folded = app.icsFold_('SUMMARY:' + '中'.repeat(40));
+    folded.split('\r\n').forEach((ln, i) => {
+      assert(Buffer.byteLength(ln, 'utf8') <= 75, '第' + i + '行超 75 字节');
+    });
+    assert(folded.replace(/\r\n /g, '') === 'SUMMARY:' + '中'.repeat(40), '展开后应还原');
   });
 }
 

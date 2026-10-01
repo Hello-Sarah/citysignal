@@ -30,6 +30,10 @@ HEADER = [
     "City", "WeekId", "Zone", "SubGroup", "Category", "Title", "DateInfo",
     "Location", "Status", "PriceInfo", "MapLink", "Note", "Pick",
 ]
+# 加入日历用的两列，选填，接在 Pick 后面。填了才出日历按钮。
+TIME_COLS = ["StartAt", "EndAt"]
+HEADER_FULL = HEADER + TIME_COLS
+WALLTIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$")
 
 # 分区是按城市定的：每个城市有自己的一套 Zone。
 # 这张表必须和 Code.gs 里 CONFIG.CITIES 的 zones 保持一致——
@@ -77,7 +81,7 @@ def check_header(rows, rep):
         rep.error(0, "-", "文件为空")
         return False
     head = [c.strip() for c in rows[0]]
-    if head == HEADER:
+    if head == HEADER or head == HEADER_FULL:
         return True
     # 允许缺少末尾的 Pick 列（旧版数据）
     if head == HEADER[:-1]:
@@ -94,16 +98,30 @@ def check_header(rows, rep):
 def check_rows(rows, rep):
     ncol = len(HEADER)
     weekids = set()
+    has_time = [c.strip() for c in rows[0]] == HEADER_FULL
     seen_titles = {}
 
     for i, raw in enumerate(rows[1:], start=2):
         if not any(c.strip() for c in raw):
             continue  # 跳过纯空行
 
-        if len(raw) not in (ncol, ncol - 1):
-            rep.error(i, "-", f"列数为 {len(raw)}，期望 {ncol}")
+        allowed = (ncol, ncol - 1) + ((ncol + 1, ncol + 2) if has_time else ())
+        if len(raw) not in allowed:
+            rep.error(i, "-", f"列数为 {len(raw)}，期望 {ncol}" + ("–" + str(ncol + 2) if has_time else ""))
             continue
-        r = dict(zip(HEADER, list(raw) + [""] * (ncol - len(raw))))
+        cols = HEADER_FULL if has_time else HEADER
+        r = dict(zip(cols, list(raw) + [""] * (len(cols) - len(raw))))
+
+        # 0) StartAt / EndAt：格式、先后
+        if has_time:
+            s, e = r["StartAt"].strip(), r["EndAt"].strip()
+            for col, v in (("StartAt", s), ("EndAt", e)):
+                if v and not WALLTIME_RE.match(v):
+                    rep.error(i, col, f"格式应为 2026-10-02 或 2026-10-02 13:00，实际 {v!r}")
+            if e and not s:
+                rep.error(i, "EndAt", "填了 EndAt 却没填 StartAt")
+            if s and e and WALLTIME_RE.match(s) and WALLTIME_RE.match(e) and e.replace("T", " ") < s.replace("T", " "):
+                rep.error(i, "EndAt", f"结束 {e} 早于开始 {s}")
 
         # 1) 必填
         for col in REQUIRED:
