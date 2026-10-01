@@ -37,7 +37,7 @@ const FIXTURE = [
 ];
 
 // ---- 打桩 ----
-function makeApp(sheetValues, initialSentLog) {
+function makeApp(sheetValues, initialSentLog, http) {
   let sentLog = initialSentLog || null;   // null = SentLog 分頁還不存在
   const sentMail = [];
   const logged = [];
@@ -47,7 +47,15 @@ function makeApp(sheetValues, initialSentLog) {
         getSpreadsheetTimeZone: () => 'America/Los_Angeles',
         getSheetByName: (name) => name === 'SentLog'
           ? (sentLog ? { getDataRange: () => ({ getValues: () => sentLog }), appendRow: (r) => sentLog.push(r) } : null)
-          : { getDataRange: () => ({ getValues: () => sheetValues }) },
+          : {
+              getDataRange: () => ({ getValues: () => sheetValues }),
+              getLastRow: () => sheetValues.length,
+              getLastColumn: () => sheetValues[0].length,
+              getRange: (r, c, nr, nc) => ({
+                getValues: () => sheetValues.slice(r - 1, r - 1 + nr).map(x => x.slice(c - 1, c - 1 + nc)),
+                setValues: (rows) => { rows.forEach((row, i) => { sheetValues[r - 1 + i] = row; }); }
+              })
+            },
         insertSheet: () => { sentLog = []; return { getDataRange: () => ({ getValues: () => sentLog }), appendRow: (r) => sentLog.push(r) }; }
       })
     },
@@ -64,6 +72,12 @@ function makeApp(sheetValues, initialSentLog) {
     Session: { getScriptTimeZone: () => 'America/Los_Angeles' },
     GmailApp: { sendEmail: (to, subject, body, opts) => sentMail.push({ to, subject, body, opts }) },
     Logger: { log: (m) => logged.push(String(m)) },
+    UrlFetchApp: {
+      fetch: (url) => {
+        const hit = (http || {})[url];
+        return { getResponseCode: () => hit === undefined ? 404 : 200, getContentText: () => hit || '' };
+      }
+    },
     ContentService: {
       MimeType: { ICAL: 'text/calendar', TEXT: 'text/plain' },
       createTextOutput: (s) => {
@@ -76,7 +90,7 @@ function makeApp(sheetValues, initialSentLog) {
   };
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
   const factory = new Function(...Object.keys(stubs),
-    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_ };');
+    src + '\n; return { doGet, sendWeeklyEmail, previewWeeklyEmail, sendIssueTo_, CONFIG, calendarEvent_, gcalUrl_, buildIcs_, icsFold_, importApprovedIssues_, importIssuesNow };');
   const app = factory(...Object.values(stubs));
   return { app, sentMail, logged, getSentLog: () => sentLog };
 }
@@ -386,6 +400,78 @@ console.log('\n=== 加入日历 ===');
       assert(Buffer.byteLength(ln, 'utf8') <= 75, '第' + i + '行超 75 字节');
     });
     assert(folded.replace(/\r\n /g, '') === 'SUMMARY:' + '中'.repeat(40), '展开后应还原');
+  });
+}
+
+console.log('\n=== 从 GitHub 导入已审核的期次 ===');
+{
+  const API = 'https://api.github.com/repos/Hello-Sarah/citysignal/contents/data/issues';
+  const RAW = 'https://raw.githubusercontent.com/Hello-Sarah/citysignal/main/data/issues/';
+  const tsv = (week, extra) => [HEADER.join('\t')].concat([
+    ['三藩市湾区', week, '三藩市市内', '吃', '吃', 'SF 新一期' + (extra || ''), '10.07', 'SF', '已核实', '', '', '', ''].join('\t'),
+    ['香港', week, '港岛', '展', '展', 'HK 新一期', '10.08', '中环', '已核实', '', '', '=HYPERLINK("x")', ''].join('\t'),
+  ]).join('\n');
+  const fresh = () => FIXTURE.map(r => r.slice());
+  const today = new Date().toISOString().slice(0, 10);
+
+  check('导入日期已到、表格里没有的期次，按表头对列', () => {
+    const http = { [API]: JSON.stringify([{ name: '2026-09-09.tsv' }, { name: 'README.md' }]),
+                   [RAW + '2026-09-09.tsv']: tsv('2026-09-09') };
+    const sheet = fresh();
+    const { app } = makeApp(sheet, null, http);
+    const got = app.importApprovedIssues_();
+    assert(got.length === 2, JSON.stringify(got));
+    assert(sheet.length === FIXTURE.length + 2, '应新增 2 行');
+    assert(sheet[sheet.length - 2][5] === 'SF 新一期');
+  });
+
+  check('以 = 开头的值加单引号，防公式注入', () => {
+    const http = { [API]: JSON.stringify([{ name: '2026-09-09.tsv' }]), [RAW + '2026-09-09.tsv']: tsv('2026-09-09') };
+    const sheet = fresh();
+    makeApp(sheet, null, http).app.importApprovedIssues_();
+    const hk = sheet.filter(r => r[5] === 'HK 新一期')[0];
+    assert(hk[11] === "'=HYPERLINK(\"x\")", hk[11]);
+  });
+
+  check('同一期导入两次不会重复写', () => {
+    const http = { [API]: JSON.stringify([{ name: '2026-09-09.tsv' }]), [RAW + '2026-09-09.tsv']: tsv('2026-09-09') };
+    const sheet = fresh();
+    const { app } = makeApp(sheet, null, http);
+    app.importApprovedIssues_();
+    const n = sheet.length;
+    assert(app.importApprovedIssues_().length === 0 && sheet.length === n);
+  });
+
+  check('表格里已有该期（例如人工录入过）→ 整期跳过', () => {
+    const http = { [API]: JSON.stringify([{ name: '2026-09-02.tsv' }]), [RAW + '2026-09-02.tsv']: tsv('2026-09-02') };
+    const sheet = fresh();
+    makeApp(sheet, null, http).app.importApprovedIssues_();
+    assert(sheet.length === FIXTURE.length, '已有 09.02 的城市不应再写');
+  });
+
+  check('日期还没到的期次（提前合并的）不导入', () => {
+    const future = '2099-01-07';
+    const http = { [API]: JSON.stringify([{ name: future + '.tsv' }]), [RAW + future + '.tsv']: tsv(future) };
+    const sheet = fresh();
+    assert(makeApp(sheet, null, http).app.importApprovedIssues_().length === 0);
+    assert(sheet.length === FIXTURE.length);
+  });
+
+  check('GitHub 不可达 → 什么也不做，发信照常', () => {
+    const sheet = fresh();
+    const { app, sentMail } = makeApp(sheet, null, {});
+    app.sendWeeklyEmail();
+    assert(sheet.length === FIXTURE.length);
+    assert(sentMail.length === 2, '应照常发 2 封');
+  });
+
+  check('发信前先导入：新一期合并后，周三发的就是新一期', () => {
+    const http = { [API]: JSON.stringify([{ name: '2026-09-09.tsv' }]), [RAW + '2026-09-09.tsv']: tsv('2026-09-09') };
+    const log = [['City','WeekId','SentAt'], ['sf','2026-09-02',''], ['hk','2026-09-02','']];
+    const { app, sentMail } = makeApp(fresh(), log, http);
+    app.sendWeeklyEmail();
+    assert(sentMail.length === 2, '两城都有新一期，应发 2 封，实际 ' + sentMail.length);
+    sentMail.forEach(m => contains(m.subject, '09.09 那一週'));
   });
 }
 

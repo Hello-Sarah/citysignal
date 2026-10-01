@@ -73,6 +73,15 @@ const CONFIG = {
   // 兜底頁面標題：僅在城市配置裏沒寫 siteTitle 時使用
   SITE_TITLE: '本地活動週報',
 
+  // ---- 每週新一期從哪裏來 ----
+  // 雲端任務每週一整理好下一期，以 PR 的形式提交到 GitHub 的 data/issues/<WeekId>.tsv。
+  // 作者在 GitHub 上點 Merge = 審核通過。發信前這裏會把「已合併、日期已到、表格裏還沒有」的期次寫進表格。
+  // 沒合併的 PR 不會出現在 main 上，所以不會被導入——審核這一步不能被繞過。
+  ISSUES_SOURCE: {
+    api: 'https://api.github.com/repos/Hello-Sarah/citysignal/contents/data/issues',
+    raw: 'https://raw.githubusercontent.com/Hello-Sarah/citysignal/main/data/issues/'
+  },
+
   // ---- 暫停期次 ----
   // 某幾週沒出刊時，在這裏登記。頁面側邊欄會把這幾週列出來並標「暫停」，
   // 恢復後的第一期頂部會寫明暫停了多久、為什麼。
@@ -735,6 +744,13 @@ const PAGE_CSS_ = `
 // 一個城市一封而不是把多城市塞進一封，是因為「當期精選前 5 條」這個概念
 // 只有在單一城市下才成立；混城市之後讀者要先分辨哪條屬於哪裏，反而更累。
 function sendWeeklyEmail() {
+  // 先把 GitHub 上已審核的新一期導入表格。導入失敗不影響發信（最多就是沒有新一期，什麼也不發）
+  try {
+    const got = importApprovedIssues_();
+    if (got.length) Logger.log('已從 GitHub 導入:\n' + got.join('\n'));
+  } catch (err) {
+    Logger.log('導入 GitHub 期次失敗：' + err);
+  }
   const sent = [];
   citiesList_().forEach(city => {
     const subs = (CONFIG.RECIPIENTS || [])
@@ -767,6 +783,71 @@ function sendWeeklyEmail() {
   } else {
     Logger.log('已發送:\n' + sent.join('\n'));
   }
+}
+
+// ============================================================
+// 從 GitHub 導入已審核的期次
+// ============================================================
+// 規則：
+//  1. 只看 main 分支上 data/issues/ 裏名為 YYYY-MM-DD.tsv 的文件（= 已合併的 PR）
+//  2. 只導入日期 <= 今天的：提前合併的下下期不會被當成「最新一期」提前發出去
+//  3. 某城市某期在表格裏已經有任何一行 → 整期跳過，不重複寫入，也不覆蓋人工改過的內容
+//  4. 按表頭名對列，不依賴列順序；以 = + @ 開頭的值加單引號，防止被 Sheets 當公式執行
+function importApprovedIssues_() {
+  const src = CONFIG.ISSUES_SOURCE;
+  if (!src || !src.api || !src.raw) return [];
+  const opts = { muteHttpExceptions: true, headers: { 'User-Agent': 'CitySignal weekly digest' } };
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  const list = UrlFetchApp.fetch(src.api, opts);
+  if (list.getResponseCode() !== 200) return [];
+  const weeks = JSON.parse(list.getContentText())
+    .map(f => String(f.name || ''))
+    .filter(n => /^\d{4}-\d{2}-\d{2}\.tsv$/.test(n))
+    .map(n => n.slice(0, 10))
+    .filter(w => w <= today)
+    .sort();
+  if (!weeks.length) return [];
+
+  const sheet = SpreadsheetApp.openById(CONFIG.SHEET_ID).getSheetByName(CONFIG.SHEET_TAB_NAME);
+  const sheetHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const have = {};
+  readAllEvents_().forEach(d => { have[d.City + '|' + d.WeekId] = true; });
+
+  const done = [];
+  weeks.forEach(week => {
+    const res = UrlFetchApp.fetch(src.raw + week + '.tsv', opts);
+    if (res.getResponseCode() !== 200) return;
+    const lines = res.getContentText().replace(/\r/g, '').split('\n').filter(l => l.trim());
+    if (lines.length < 2) return;
+    const head = lines[0].split('\t').map(h => h.trim());
+    const byCity = {};
+    lines.slice(1).forEach(line => {
+      const cells = line.split('\t');
+      const o = {};
+      head.forEach((h, i) => { o[h] = (cells[i] || '').trim(); });
+      if (o.WeekId !== week || !o.City || !o.Title) return;   // 文件名和內容對不上的行不收
+      const key = normalizeEnum_(o.City) + '|' + week;
+      if (have[key]) return;
+      (byCity[key] = byCity[key] || []).push(sheetHeaders.map(h => {
+        const v = o[h] === undefined ? '' : o[h];
+        return /^[=+@]/.test(v) ? "'" + v : v;
+      }));
+    });
+    Object.keys(byCity).forEach(key => {
+      const rows = byCity[key];
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, sheetHeaders.length).setValues(rows);
+      have[key] = true;
+      done.push(key.replace('|', ' ') + '（' + rows.length + ' 條）');
+    });
+  });
+  return done;
+}
+
+// 手動導入：不想等週三，合併 PR 後想立刻在網頁上看到，就在編輯器裏運行這個。不發信。
+function importIssuesNow() {
+  const got = importApprovedIssues_();
+  Logger.log(got.length ? '已導入:\n' + got.join('\n') : '沒有需要導入的新期次');
 }
 
 // 預覽：只發到作者本人的郵箱（腳本所有者 + CONFIG.PREVIEW_ALSO）。
