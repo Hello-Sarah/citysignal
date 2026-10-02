@@ -21,6 +21,13 @@ Wed (Apps Script) sendWeeklyEmail(): import merged issues dated <= today → sen
 | `三藩市湾区` | `三藩市市内` (~10–13), `湾区市外` (~4–6), `华人社群活动` (0–3, only with a checkable source) | 14–20 |
 | `香港` | `港岛`, `九龙`, `新界` | 9–14 |
 
+**Plus, in both cities, a `演唱会与展览` zone** (on top of the targets above), about 6–9 concerts + 4–5 exhibitions:
+- `SubGroup` = `演唱会` (Category `音乐`) or `展览` (Category `展`).
+- Concerts: notable shows from this week up to ~3 months ahead (arena/stadium pop incl. Cantopop/Mandopop/K-pop, a couple of mid-size venues, 1 classical). Also include big shows whose tickets **go on sale** in the next few weeks — put `｜MM.DD 10am開售` at the end of `DateInfo`. Mark `PriceInfo` as `已售罄` when sold out. Drop postponed/cancelled shows.
+- Exhibitions: on view during this issue's week; skip ones already listed in the city zones. Note the closed weekday only if the official page says so.
+- Keep long-running items from last issue if still relevant, but refresh their dates/status.
+- Concert posters are usually text-heavy key visuals — don't use them; use an artist photo from the official page, or a Wikimedia Commons photo of the venue.
+
 SubGroup / Category rules are in [`data/schema.md`](../data/schema.md). The SF reader likes food, new restaurant openings and markets; exhibitions and art; geeky / science / tech events. Mark 3–5 SF entries with `★` in `Pick`. Leave `Pick` empty for Hong Kong.
 
 Do not repeat long-running items from the previous issue unless they close within the window (say so in `Note`).
