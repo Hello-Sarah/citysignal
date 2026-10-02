@@ -503,6 +503,18 @@ console.log('\n=== 天气中文化与图标 ===');
   });
 }
 
+console.log('\n=== 演唱会与展览分区 ===');
+{
+  const { app } = makeApp(FIXTURE);
+  check('两个城市都有「演唱會與展覽」分区，排在最后', () => {
+    app.CONFIG.CITIES.forEach(c => assert(c.zones[c.zones.length - 1] === '演唱會與展覽', c.slug));
+  });
+  check('简体分区/小节名读表时转繁体', () => {
+    assert(app.normalizeEnum_('演唱会与展览') === '演唱會與展覽');
+    assert(app.normalizeEnum_('演唱会') === '演唱會' && app.normalizeEnum_('展览') === '展覽');
+  });
+}
+
 console.log('\n=== 报名 / 购票按钮 ===');
 {
   const { app } = makeApp(FIXTURE);
